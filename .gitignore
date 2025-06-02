@@ -1,2 +1,4 @@
 Praise_Charts/
 Praise Charts Download.bat
+__pycache__/
+*.pyc
