@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QDialogButtonBox,
     QMessageBox,
+    QInputDialog,
 )
 from transposition_utils import (
     normalize_key as util_normalize_key,
@@ -54,6 +55,7 @@ from sheet_music_threads import (
     SelectKeyThread,
     DownloadAndProcessThread,
 )
+from batch_processor import BatchProcessor
 
 # Main application window
 class App(QMainWindow):
@@ -97,6 +99,7 @@ class App(QMainWindow):
         self.instrument_parts = []  # To store instrument parts
         self.selected_instruments = []  # To store selected instruments
         self.is_song_selected = False  # Flag to track if a song has been selected
+        self.batch_processor = BatchProcessor(self)
 
 
         self.setWindowTitle("Praise Charts Music Downloader")
@@ -238,6 +241,11 @@ class App(QMainWindow):
         self.download_and_process_button.setToolTip("Download and process images for the selected song")
         self.download_and_process_button.clicked.connect(self.download_and_process_images)
 
+        # Batch processing button
+        self.batch_process_button = QPushButton("Batch Process List", self)
+        self.batch_process_button.setToolTip("Enter a list of songs for batch processing")
+        self.batch_process_button.clicked.connect(self.batch_process_songs)
+
         # Log and Progress Bar
         self.log_area = QTextEdit(self)
         self.log_area.setReadOnly(True)
@@ -320,6 +328,7 @@ class App(QMainWindow):
         main_layout.addWidget(transposition_group)  # Add the transposition group
         main_layout.addWidget(download_group)
         main_layout.addWidget(self.download_and_process_button)
+        main_layout.addWidget(self.batch_process_button)
         main_layout.addWidget(QLabel("Log:"))
         main_layout.addWidget(self.log_area)
         main_layout.addWidget(self.progress_label)
@@ -378,6 +387,28 @@ class App(QMainWindow):
             self.select_instruments_button.setEnabled(True)
         self.download_and_process_button.setEnabled(True)
         self.horn_checkbox.setEnabled(True)
+
+    @pyqtSlot()
+    def batch_process_songs(self):
+        text, ok = QInputDialog.getMultiLineText(
+            self,
+            "Batch Song List",
+            "Enter one song per line in the format:\nTitle, Instrument, Key",
+        )
+        if not ok or not text.strip():
+            return
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        entries = []
+        for line in lines:
+            parts = [p.strip() for p in re.split(r"[;,]", line)]
+            if len(parts) < 3:
+                self.append_log(f"Invalid line skipped: {line}")
+                continue
+            entries.append((parts[0], parts[1], parts[2]))
+        if not entries:
+            QMessageBox.information(self, "No Songs", "No valid songs entered.")
+            return
+        self.batch_processor.process_batch(entries)
 
     def open_instrument_selection_dialog(self):
         if not self.instrument_parts:
@@ -851,6 +882,7 @@ class App(QMainWindow):
             self.select_instruments_button.setEnabled(True)
         self.download_and_process_button.setEnabled(True)
         self.horn_checkbox.setEnabled(True)
+
 
 
 # Initialize the application
