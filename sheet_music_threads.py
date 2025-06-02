@@ -187,6 +187,7 @@ class SelectSongThread(QThread):
             self.song_selection_failed.emit()
 
     def find_parts(self):
+        print("[DEBUG] Finding instrument parts")
         parts_button_xpath = xpaths['parts_button']
         if not SeleniumHelper.click_element(self.driver, parts_button_xpath, log_func=self.log_updated.emit):
             self.log_updated.emit("Error accessing parts menu.")
@@ -278,7 +279,8 @@ class DownloadAndProcessThread(QThread):
     status = pyqtSignal(str)
     log_updated = pyqtSignal(str)
 
-    def __init__(self, driver, key_choice_text, selected_song_title, selected_song_artist, paths, selected_instruments, download_horn_only=False):
+    def __init__(self, driver, key_choice_text, selected_song_title, selected_song_artist,
+                 paths, selected_instruments, download_horn_only=False, open_after_download=True):
         super().__init__()
         self.driver = driver
         self.key_choice_text = key_choice_text
@@ -290,20 +292,35 @@ class DownloadAndProcessThread(QThread):
         self.instrument_parts = []
         self.full_paths = []
         self.images_by_instrument = defaultdict(list)
+        self.open_after_download = open_after_download
+        print(f"[DEBUG] DownloadAndProcessThread initialized for '{self.selected_song_title}'")
 
     def run(self):
         try:
+            print("[DEBUG] Starting download and processing thread")
             song_dir, temp_dir = self.initialize_directories()
+            print(f"[DEBUG] Directories initialized: {song_dir}, {temp_dir}")
             self.find_parts()
+            print("[DEBUG] Parts found")
             self.download_images(temp_dir)
+            print("[DEBUG] Images downloaded")
             self.remove_watermarks()
+            print("[DEBUG] Watermarks removed")
             self.upscale_images()
+            print("[DEBUG] Images upscaled")
             torch.cuda.empty_cache()
             self.create_pdfs(song_dir, temp_dir)
+            print("[DEBUG] PDFs created")
             self.cleanup(temp_dir)
-            self.open_directory(song_dir)
+            print("[DEBUG] Temporary files cleaned")
+            if self.open_after_download:
+                print(f"[DEBUG] Opening directory {song_dir}")
+                self.open_directory(song_dir)
+            else:
+                print(f"[DEBUG] Skipping opening directory {song_dir}")
         except Exception as e:
             self.log_updated.emit(f"Exception in run: {str(e)}")
+            print(f"[DEBUG] Exception in run: {str(e)}")
 
     def initialize_directories(self):
         key_dir = self.key_choice_text
@@ -314,6 +331,8 @@ class DownloadAndProcessThread(QThread):
         os.makedirs(song_dir, exist_ok=True)
         temp_dir = os.path.join(main_dir, title_dir, artist_dir, self.paths['temp_sub_dir'])
         os.makedirs(temp_dir, exist_ok=True)
+        print(f"[DEBUG] Created song directory {song_dir}")
+        print(f"[DEBUG] Created temp directory {temp_dir}")
         return song_dir, temp_dir
 
     def find_parts(self):
@@ -344,6 +363,7 @@ class DownloadAndProcessThread(QThread):
             return
 
     def download_images(self, temp_dir):
+        print("[DEBUG] Downloading images")
         self.images_by_instrument = defaultdict(list)
         downloaded_urls = set()
         try:
@@ -439,6 +459,7 @@ class DownloadAndProcessThread(QThread):
         return SeleniumHelper.click_element(self.driver, next_button_xpath, log_func=self.log_updated.emit)
 
     def remove_watermarks(self):
+        print("[DEBUG] Removing watermarks")
         try:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             wm_model = UNet().to(self.device)
@@ -465,6 +486,7 @@ class DownloadAndProcessThread(QThread):
             self.log_updated.emit(f"Exception in remove_watermarks: {str(e)}")
 
     def upscale_images(self):
+        print("[DEBUG] Upscaling images")
         try:
             image_base_width, image_base_height = 1700, 2200
             us_model = VDSR().to(self.device)
@@ -503,6 +525,7 @@ class DownloadAndProcessThread(QThread):
             self.log_updated.emit(f"Exception in upscale_images: {str(e)}")
 
     def create_pdfs(self, song_dir, temp_dir):
+        print("[DEBUG] Creating PDFs")
         try:
             img_width, img_height = 1700, 2200
             total_instruments = len(self.us_outputs)
@@ -536,6 +559,7 @@ class DownloadAndProcessThread(QThread):
             self.log_updated.emit(f"Exception in create_pdfs: {str(e)}")
 
     def cleanup(self, temp_dir):
+        print("[DEBUG] Cleaning up temporary files")
         try:
             for paths in self.images_by_instrument.values():
                 for path in paths:
@@ -546,6 +570,7 @@ class DownloadAndProcessThread(QThread):
 
     def open_directory(self, path):
         try:
+            print(f"[DEBUG] Opening directory {path}")
             if not os.environ.get('DISPLAY') and platform.system() == 'Linux':
                 return
             if platform.system() == "Windows":
