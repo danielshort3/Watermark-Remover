@@ -709,7 +709,8 @@ class App(QMainWindow):
 
 
     @pyqtSlot()
-    def download_and_process_images(self):
+    def download_and_process_images(self, open_after_download=True):
+        print("[DEBUG] download_and_process_images called")
         if not self.key_choice_box.currentText():
             QMessageBox.warning(self, "No Key", "Please select a key before downloading.")
             self.append_log("Please select a key before downloading.")
@@ -730,7 +731,9 @@ class App(QMainWindow):
         selected_instruments = self.selected_instruments.copy()
 
         self.download_and_process_images_thread = DownloadAndProcessThread(
-            driver, key_choice_text, selected_song_title, selected_song_artist, paths, selected_instruments, download_horn_only)
+            driver, key_choice_text, selected_song_title, selected_song_artist,
+            paths, selected_instruments, download_horn_only,
+            open_after_download=open_after_download)
         self.download_and_process_images_thread.log_updated.connect(self.update_log)
         self.download_and_process_images_thread.progress.connect(self.updateProgressBar)
         self.download_and_process_images_thread.status.connect(self.updateStatusLabel)
