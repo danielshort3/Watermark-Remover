@@ -10,10 +10,11 @@ from collections import defaultdict
 from datetime import datetime
 import subprocess
 import platform
+import shutil
 
 # Third-party library imports
 from PyQt5.QtGui import QIcon, QTextCursor, QFont, QPixmap
-from PyQt5.QtCore import Qt, pyqtSlot, QThread, pyqtSignal, QByteArray, QSize
+from PyQt5.QtCore import Qt, pyqtSlot, QThread, pyqtSignal, QByteArray, QSize, QEventLoop
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -33,6 +34,8 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QDialogButtonBox,
     QMessageBox,
+    QInputDialog,
+    QFileDialog,
 )
 from transposition_utils import (
     normalize_key as util_normalize_key,
@@ -238,6 +241,11 @@ class App(QMainWindow):
         self.download_and_process_button.setToolTip("Download and process images for the selected song")
         self.download_and_process_button.clicked.connect(self.download_and_process_images)
 
+        # Batch processing button
+        self.batch_process_button = QPushButton("Batch Process List", self)
+        self.batch_process_button.setToolTip("Process a list of songs from a file")
+        self.batch_process_button.clicked.connect(self.batch_process_songs)
+
         # Log and Progress Bar
         self.log_area = QTextEdit(self)
         self.log_area.setReadOnly(True)
@@ -320,6 +328,7 @@ class App(QMainWindow):
         main_layout.addWidget(transposition_group)  # Add the transposition group
         main_layout.addWidget(download_group)
         main_layout.addWidget(self.download_and_process_button)
+        main_layout.addWidget(self.batch_process_button)
         main_layout.addWidget(QLabel("Log:"))
         main_layout.addWidget(self.log_area)
         main_layout.addWidget(self.progress_label)
@@ -851,6 +860,104 @@ class App(QMainWindow):
             self.select_instruments_button.setEnabled(True)
         self.download_and_process_button.setEnabled(True)
         self.horn_checkbox.setEnabled(True)
+
+    # -------------------- Batch Processing --------------------
+    def run_thread_and_wait(self, thread):
+        loop = QEventLoop()
+        thread.finished.connect(loop.quit)
+        thread.start()
+        loop.exec_()
+
+    @pyqtSlot()
+    def batch_process_songs(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Song List", "", "Text Files (*.txt)")
+        if not file_path:
+            return
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = [ln.strip() for ln in f if ln.strip()]
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to read file: {e}")
+            return
+
+        entries = []
+        for line in lines:
+            parts = [p.strip() for p in re.split(r"[;,]", line)]
+            if len(parts) < 3:
+                self.append_log(f"Invalid line skipped: {line}")
+                continue
+            entries.append((parts[0], parts[1], parts[2]))
+
+        if not entries:
+            QMessageBox.information(self, "No Songs", "No valid songs found in the file.")
+            return
+
+        batch_dir = os.path.join(self.paths['download_dir'], 'Batch_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
+        os.makedirs(batch_dir, exist_ok=True)
+
+        for title, instrument, key in entries:
+            keep = self.process_single_song(title, instrument, key, batch_dir)
+            if not keep:
+                break
+
+        QMessageBox.information(self, "Batch Complete", "Finished processing song list.")
+
+    def process_single_song(self, title, instrument, key, dest_root):
+        self.append_log(f"Processing '{title}' - {instrument} in {key}")
+
+        # Search for the song
+        self.song_search_box.setText(title)
+        self.find_songs()
+        self.run_thread_and_wait(self.find_songs_thread)
+
+        options = [info['text'] for info in self.song_info[:5]]
+        if not options:
+            self.append_log(f"No results for {title}")
+            return True
+
+        item, ok = QInputDialog.getItem(self, "Select Song", f"Select version for {title}", options, 0, False)
+        if not ok:
+            return False
+        index = options.index(item)
+        self.song_choice_box.setCurrentIndex(index)
+        self.select_song()
+        self.run_thread_and_wait(self.select_song_thread)
+
+        available_keys = [self.key_choice_box.itemText(i) for i in range(self.key_choice_box.count())]
+        if key not in available_keys:
+            msg = f"Requested key '{key}' not found. Choose from available keys:"\
+                  f"\n{', '.join(available_keys)}"
+            key, ok = QInputDialog.getItem(self, "Select Key", msg, available_keys, 0, False)
+            if not ok:
+                return False
+
+        self.key_choice_box.setCurrentText(key)
+        self.select_key()
+        self.run_thread_and_wait(self.select_key_thread)
+
+        if instrument not in self.instrument_parts:
+            instrument, ok = QInputDialog.getItem(self, "Select Instrument",
+                                                 f"Instrument '{instrument}' not found. Choose one:",
+                                                 self.instrument_parts, 0, False)
+            if not ok:
+                return False
+        self.selected_instruments = [instrument]
+
+        self.download_and_process_images()
+        self.run_thread_and_wait(self.download_and_process_images_thread)
+
+        key_dir = key
+        title_dir = re.sub(r'[<>:"\\|?* ]', '_', title.replace('/', '-'))
+        artist_dir = re.sub(r'[<>:"\\|?* ]', '_', 'artist')
+        song_dir = os.path.join(self.paths['download_dir'], title_dir, artist_dir, key_dir)
+        dest_dir = os.path.join(dest_root, title_dir)
+        os.makedirs(dest_dir, exist_ok=True)
+        for fname in os.listdir(song_dir):
+            if fname.endswith('.pdf'):
+                shutil.move(os.path.join(song_dir, fname), os.path.join(dest_dir, fname))
+
+        shutil.rmtree(os.path.join(self.paths['download_dir'], title_dir), ignore_errors=True)
+        return True
 
 
 # Initialize the application
