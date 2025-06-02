@@ -34,6 +34,13 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QMessageBox,
 )
+from transposition_utils import (
+    normalize_key as util_normalize_key,
+    get_interval_name as util_get_interval_name,
+    get_transposition_suggestions as util_get_transposition_suggestions,
+    VALID_KEYS,
+    INSTRUMENT_TRANSPOSITIONS,
+)
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -1349,16 +1356,7 @@ class App(QMainWindow):
         self.closest_matches_display.clear()
 
     def normalize_key(self, key):
-        key = key.strip()
-        if not key:
-            return ""
-        # If the key contains additional descriptors (e.g., "minor"), take only the first part.
-        key = key.split()[0]
-        # Ensure the note letter is uppercase.
-        note = key[0].upper()
-        # Preserve the accidental as entered, converting any uppercase "B" used for flats to lowercase.
-        accidental = key[1:].replace("B", "b")
-        return note + accidental
+        return util_normalize_key(key)
 
     def update_transposition_suggestions(self):
         target_key = self.target_key_input.text().strip()
@@ -1371,16 +1369,11 @@ class App(QMainWindow):
             self.clear_transposition_suggestions()
             return
 
-        instrument_parts = self.instrument_parts
-        if not instrument_parts:
-            self.clear_transposition_suggestions()
-            return
+
 
         # Validate target key
-        valid_keys = {'C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'F', 'F#', 'Gb',
-                     'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B'}
         normalized_target_key = self.normalize_key(target_key)
-        if normalized_target_key not in valid_keys:
+        if normalized_target_key not in VALID_KEYS:
             QMessageBox.warning(
                 self,
                 "Invalid Key",
@@ -1393,138 +1386,38 @@ class App(QMainWindow):
             return
 
         # Compute suggestions
-        suggestions = self.get_transposition_suggestions(available_keys, instrument_parts, target_key)
+        suggestions = self.get_transposition_suggestions(available_keys, [], target_key)
 
         # Update the GUI with the suggestions
         self.show_transposition_suggestions(suggestions)
 
 
     def get_transposition_suggestions(self, available_keys, instrument_parts, target_key):
-        key_to_semitone = {
-            'C': 0, 'C#': 1, 'Db': 1,
-            'D': 2, 'D#': 3, 'Eb': 3,
-            'E': 4, 'F': 5, 'F#': 6, 'Gb': 6,
-            'G': 7, 'G#': 8, 'Ab': 8,
-            'A': 9, 'A#': 10, 'Bb': 10,
-            'B': 11,
-        }
-
-        semitone_to_key = {
-            0: 'C',
-            1: 'C#/Db',
-            2: 'D',
-            3: 'D#/Eb',
-            4: 'E',
-            5: 'F',
-            6: 'F#/Gb',
-            7: 'G',
-            8: 'G#/Ab',
-            9: 'A',
-            10: 'A#/Bb',
-            11: 'B'
-        }
-
-        instrument_transpositions = {
-            'Rhythm Chart': 0,
-            'Acoustic Guitar': 0,
-            'Flute 1/2': 0,
-            'Flute/Oboe 1/2/3': 0,
-            'Oboe': 0,
-            'Clarinet 1/2': -2,
-            'Bass Clarinet': -2,
-            'Bassoon': 0,
-            'French Horn 1/2': -7,
-            'Trumpet 1,2': -2,
-            'Trumpet 3': -2,
-            'Trombone 1/2': 0,
-            'Trombone 3/Tuba': 0,
-            'Alto Sax': -9,
-            'Tenor Sax 1/2': -2,
-            'Bari Sax': -9,
-            'Timpani': 0,
-            'Percussion': 0,
-            'Violin 1/2': 0,
-            'Viola': 0,
-            'Cello': 0,
-            'Double Bass': 0,
-            'String Reduction': 0,
-            'String Bass': 0,
-            'Lead Sheet (SAT)': 0,
-        }
-
-        # Normalize and validate the target key.
-        target_key = self.normalize_key(target_key)
-        if target_key not in key_to_semitone:
-            QMessageBox.warning(
-                self,
-                "Invalid Key",
-                f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F).",
-            )
-            self.append_log(
-                f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F)."
-            )
-            return {'direct': [], 'closest': []}
-
-        target_semitone = key_to_semitone[target_key]
-
-        # Get the selected instrument from the dropdown.
         selected_instrument = self.instrument_choice_box.currentText().strip()
 
-        if selected_instrument not in instrument_transpositions:
-            self.append_log(f"Instrument '{selected_instrument}' not recognized for transposition.")
-            return {'direct': [], 'closest': []}
+        suggestions = util_get_transposition_suggestions(
+            available_keys,
+            selected_instrument,
+            target_key,
+        )
 
-        matches_direct = []
-        matches_closest = []
-
-        for instrument, T_O in instrument_transpositions.items():
-            if instrument == selected_instrument:
-                continue  # Skip the selected instrument itself.
-
-            # Calculate the required written key for instrument O to sound in the target key.
-            # K_O = (target_semitone - T_O) mod 12
-            required_written_semitone = (target_semitone - T_O) % 12
-            required_written_key = semitone_to_key.get(required_written_semitone, 'Unknown')
-
-            if required_written_key in available_keys:
-                matches_direct.append({
-                    'instrument': instrument,
-                    'key': required_written_key,
-                    'difference': 0,
-                    'interval_direction': 'none',
-                    'interval': 'Perfect Unison'
-                })
-            else:
-                # Find the closest available key.
-                available_semitones = [key_to_semitone[k] for k in available_keys if k in key_to_semitone]
-                if not available_semitones:
-                    continue  # No available keys to compare.
-
-                diffs = [(abs(semitone - required_written_semitone), semitone) for semitone in available_semitones]
-                diffs.sort(key=lambda x: x[0])
-                closest_diff, closest_semitone = diffs[0]
-                closest_key = semitone_to_key.get(closest_semitone, 'Unknown')
-
-                if closest_semitone > required_written_semitone:
-                    interval_direction = 'above'
-                elif closest_semitone < required_written_semitone:
-                    interval_direction = 'below'
-                else:
-                    interval_direction = 'none'
-
-                interval_name = self.get_interval_name(closest_diff)
-
-                matches_closest.append({
-                    'instrument': instrument,
-                    'key': closest_key,
-                    'difference': closest_diff,
-                    'interval_direction': interval_direction,
-                    'interval': interval_name
-                })
-
-        matches_closest.sort(key=lambda s: s['difference'])
-
-        return {'direct': matches_direct, 'closest': matches_closest}
+        if not suggestions['direct'] and not suggestions['closest']:
+            # Handle invalid key or instrument by checking validity manually
+            normalized_target = util_normalize_key(target_key)
+            if normalized_target not in VALID_KEYS:
+                QMessageBox.warning(
+                    self,
+                    "Invalid Key",
+                    f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F).",
+                )
+                self.append_log(
+                    f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F)."
+                )
+            elif selected_instrument not in INSTRUMENT_TRANSPOSITIONS:
+                self.append_log(
+                    f"Instrument '{selected_instrument}' not recognized for transposition."
+                )
+        return suggestions
 
 
 
@@ -1578,22 +1471,7 @@ class App(QMainWindow):
         return semitone_to_key.get(semitone % 12, 'Unknown')
 
     def get_interval_name(self, semitones):
-        intervals = {
-            0: 'Perfect Unison',
-            1: 'Minor Second',
-            2: 'Major Second',
-            3: 'Minor Third',
-            4: 'Major Third',
-            5: 'Perfect Fourth',
-            6: 'Tritone',
-            7: 'Perfect Fifth',
-            8: 'Minor Sixth',
-            9: 'Major Sixth',
-            10: 'Minor Seventh',
-            11: 'Major Seventh',
-            12: 'Octave'
-        }
-        return intervals.get(semitones % 12, f'{semitones} semitones')
+        return util_get_interval_name(semitones)
 
 
 
