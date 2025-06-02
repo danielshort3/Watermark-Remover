@@ -56,6 +56,7 @@ from sheet_music_threads import (
     DownloadAndProcessThread,
 )
 from batch_processor import BatchProcessor
+from batch_grid_dialog import BatchGridDialog
 
 # Main application window
 class App(QMainWindow):
@@ -390,21 +391,12 @@ class App(QMainWindow):
 
     @pyqtSlot()
     def batch_process_songs(self):
-        text, ok = QInputDialog.getMultiLineText(
-            self,
-            "Batch Song List",
-            "Enter one song per line in the format:\nTitle, Instrument, Key",
-        )
-        if not ok or not text.strip():
+        instruments = sorted(INSTRUMENT_TRANSPOSITIONS.keys())
+        keys = sorted(VALID_KEYS)
+        dialog = BatchGridDialog(instruments, keys, self)
+        if dialog.exec_() != QDialog.Accepted:
             return
-        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-        entries = []
-        for line in lines:
-            parts = [p.strip() for p in re.split(r"[;,]", line)]
-            if len(parts) < 3:
-                self.append_log(f"Invalid line skipped: {line}")
-                continue
-            entries.append((parts[0], parts[1], parts[2]))
+        entries = dialog.get_entries()
         if not entries:
             QMessageBox.information(self, "No Songs", "No valid songs entered.")
             return
