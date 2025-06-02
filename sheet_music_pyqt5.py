@@ -14,9 +14,26 @@ import platform
 # Third-party library imports
 from PyQt5.QtGui import QIcon, QTextCursor, QFont, QPixmap
 from PyQt5.QtCore import Qt, pyqtSlot, QThread, pyqtSignal, QByteArray, QSize
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QLineEdit, QProgressBar, QCheckBox,
-                             QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QTextEdit, QGroupBox,
-                             QDialog, QListWidget, QListWidgetItem, QDialogButtonBox)
+from PyQt5.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QLineEdit,
+    QProgressBar,
+    QCheckBox,
+    QPushButton,
+    QVBoxLayout,
+    QHBoxLayout,
+    QWidget,
+    QLabel,
+    QComboBox,
+    QTextEdit,
+    QGroupBox,
+    QDialog,
+    QListWidget,
+    QListWidgetItem,
+    QDialogButtonBox,
+    QMessageBox,
+)
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -872,58 +889,62 @@ class App(QMainWindow):
         self.setMaximumHeight(1200)
 
         # Styling and Font
-        self.setFont(QFont('Arial', 9))  # Reduced font size to make the text smaller
-        self.setStyleSheet("""
+        self.setFont(QFont("Arial", 9))
+        self.setStyleSheet(
+            """
             QWidget {
-                background-color: #fafafa;
+                background-color: #2b2b2b;
+                color: #f0f0f0;
             }
             QLineEdit, QComboBox, QTextEdit, QProgressBar {
-                background-color: white;
-                color: #444444;
-                border: 1px solid #cccccc;
+                background-color: #3c3f41;
+                color: #f0f0f0;
+                border: 1px solid #555;
                 border-radius: 4px;
-                font-size: 10pt;  /* Adjusted font size */
+                font-size: 10pt;
+                selection-background-color: #5a5a5a;
             }
             QPushButton {
-                background-color: #ed3124;
+                background-color: #3498db;
                 color: white;
                 border-radius: 4px;
                 padding: 5px 20px;
                 min-height: 20px;
-                font-size: 10pt;  /* Adjusted font size */
+                font-size: 10pt;
             }
             QPushButton:hover {
-                background-color: #c7271d;
+                background-color: #2980b9;
             }
             QPushButton:disabled {
-                background-color: #AAAAAA;
+                background-color: #555555;
             }
             QLabel {
-                color: #333333;
+                color: #ffffff;
                 font-weight: bold;
-                font-size: 10pt;  /* Adjusted font size */
+                font-size: 10pt;
             }
             QGroupBox {
-                border: 1px solid #cccccc;
+                border: 1px solid #555;
                 border-radius: 4px;
                 margin-top: 10px;
                 padding: 10px;
-                font-size: 9pt;  /* Adjusted font size */
+                font-size: 9pt;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 subcontrol-position: top center;
                 padding: 0 3px;
-                background-color: #fafafa;
+                background-color: #2b2b2b;
             }
             QProgressBar {
                 text-align: center;
-                font-size: 10pt;  /* Adjusted font size */
+                font-size: 10pt;
             }
             QProgressBar::chunk {
-                background-color: #ed3124;
+                background-color: #3498db;
             }
-            """)
+            """
+        )
 
 
         # GUI elements
@@ -1142,6 +1163,10 @@ class App(QMainWindow):
         self.horn_checkbox.setEnabled(True)
 
     def open_instrument_selection_dialog(self):
+        if not self.instrument_parts:
+            QMessageBox.information(self, "No Instruments", "No instruments available to select.")
+            return
+
         dialog = QDialog(self)
         dialog.setWindowTitle("Select Instruments")
         layout = QVBoxLayout()
@@ -1203,6 +1228,7 @@ class App(QMainWindow):
         user_song_choice = self.song_search_box.text()
 
         if not user_song_choice.strip():
+            QMessageBox.warning(self, "Input Required", "Please enter a song to search.")
             self.append_log("Please enter a song to search.")
             return
 
@@ -1232,6 +1258,7 @@ class App(QMainWindow):
         self.find_songs_thread.finished.connect(self.enable_search_section)
         self.find_songs_thread.finished.connect(self.enable_song_selection)
         self.find_songs_thread.finished.connect(self.disable_key_selection)
+        self.find_songs_thread.finished.connect(self.check_search_results)
         self.find_songs_thread.start()
 
         # Disable song selection UI until search completes
@@ -1241,6 +1268,7 @@ class App(QMainWindow):
     def select_song(self):
         selected_song = self.song_choice_box.currentText()
         if not selected_song:
+            QMessageBox.warning(self, "No Selection", "Please select a song from the list.")
             self.append_log("No song selected.")
             return
     
@@ -1251,6 +1279,7 @@ class App(QMainWindow):
                 break
     
         if selected_song_index is None:
+            QMessageBox.warning(self, "Selection Error", "Selected song not found in the list.")
             self.append_log("Selected song not found in song_info.")
             return
     
@@ -1280,6 +1309,7 @@ class App(QMainWindow):
         self.disable_song_selection()
 
     def handle_song_selection_failure(self):
+        QMessageBox.warning(self, "Selection Failed", "Orchestration not found or an error occurred. Please select another song.")
         self.append_log("Orchestration not found or an error occurred. Please select another song.")
         # Reset UI elements
         self.clear_song_info()
@@ -1296,6 +1326,7 @@ class App(QMainWindow):
     def select_key(self):
         selected_key = self.key_choice_box.currentText()
         if not selected_key:
+            QMessageBox.warning(self, "No Selection", "Please select a key.")
             self.append_log("No key selected.")
             return
 
@@ -1350,7 +1381,14 @@ class App(QMainWindow):
                      'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B'}
         normalized_target_key = self.normalize_key(target_key)
         if normalized_target_key not in valid_keys:
-            self.append_log(f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F).")
+            QMessageBox.warning(
+                self,
+                "Invalid Key",
+                f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F).",
+            )
+            self.append_log(
+                f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F)."
+            )
             self.clear_transposition_suggestions()
             return
 
@@ -1417,7 +1455,14 @@ class App(QMainWindow):
         # Normalize and validate the target key.
         target_key = self.normalize_key(target_key)
         if target_key not in key_to_semitone:
-            self.append_log(f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F).")
+            QMessageBox.warning(
+                self,
+                "Invalid Key",
+                f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F).",
+            )
+            self.append_log(
+                f"Invalid target key: {target_key}. Please enter a valid key (e.g., C, D#, F)."
+            )
             return {'direct': [], 'closest': []}
 
         target_semitone = key_to_semitone[target_key]
@@ -1555,10 +1600,12 @@ class App(QMainWindow):
     @pyqtSlot()
     def download_and_process_images(self):
         if not self.key_choice_box.currentText():
+            QMessageBox.warning(self, "No Key", "Please select a key before downloading.")
             self.append_log("Please select a key before downloading.")
             return
 
         if not self.song_choice_box.currentText():
+            QMessageBox.warning(self, "No Song", "Please select a song before downloading.")
             self.append_log("Please select a song before downloading.")
             return
 
@@ -1685,6 +1732,11 @@ class App(QMainWindow):
     def send_song_choice_box_count(self):
         count = self.song_choice_box.count()
         self.find_songs_thread.receive_song_choice_box_count.emit(count)
+
+    @pyqtSlot()
+    def check_search_results(self):
+        if self.song_choice_box.count() == 0:
+            QMessageBox.information(self, "No Results", "No songs were found for your search.")
 
     @pyqtSlot()
     def checkbox_state_changed(self):
