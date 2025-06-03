@@ -8,7 +8,11 @@ from torch.nn.functional import interpolate
 from torchvision import models
 from torchvision.models.vgg import VGG19_Weights
 import os
+import threading
 from pytorch_msssim import SSIM
+
+# Lock to guard model loading and file I/O
+model_lock = threading.Lock()
 
 class VDSR(nn.Module):
     def __init__(self):
@@ -107,7 +111,8 @@ class UNet(nn.Module):
         return final_output.clamp(0, 1)
     
 def PIL_to_tensor(path):
-    image = Image.open(path).convert('L')
+    with model_lock:
+        image = Image.open(path).convert('L')
     # Define the transformation
     transform = transforms.Compose([
         transforms.Resize((792, 612)),  # Resize to 612x792 pixels
@@ -122,15 +127,17 @@ def tensor_to_PIL(tensor):
     return image
 
 def load_best_model(model, directory):
-    model_files = [f for f in os.listdir(directory) if f.endswith('.pth')]
-    model_files.sort(key=lambda f: int(f.split('_')[2].split('.')[0]))
+    with model_lock:
+        model_files = [f for f in os.listdir(directory) if f.endswith('.pth')]
+        model_files.sort(key=lambda f: int(f.split('_')[2].split('.')[0]))
 
     if not model_files:
         print(f"No model files found in {directory}")
         return
 
     recent_model_path = os.path.join(directory, model_files[-1])
-    save_dict = torch.load(recent_model_path)
+    with model_lock:
+        save_dict = torch.load(recent_model_path)
     val_losses = save_dict.get('val_loss', [])
 
     if not val_losses:
@@ -141,7 +148,8 @@ def load_best_model(model, directory):
     best_model_file = f"model_epoch_{lowest_val_loss_epoch}.pth"
     best_model_path = os.path.join(directory, best_model_file)
 
-    save_dict = torch.load(best_model_path)
+    with model_lock:
+        save_dict = torch.load(best_model_path)
 
     # Remove 'module.' prefix if present
     new_state_dict = {k.replace("module.", "").replace("_orig_mod.", ""): v for k, v in save_dict['state_dict'].items()}
@@ -153,8 +161,9 @@ def load_model(model, model_path):
     if not os.path.isfile(model_path):
         print(f"No model file found at {model_path}")
         return
-    
-    save_dict = torch.load(model_path)
+
+    with model_lock:
+        save_dict = torch.load(model_path)
 
     val_loss = save_dict.get('val_loss')
     if val_loss is None:

@@ -7,6 +7,10 @@ from selenium.common.exceptions import (
 )
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import threading
+
+# Lock to serialize Selenium operations across threads
+selenium_lock = threading.Lock()
 
 # Centralised dictionary of XPaths used by the application
 xpaths = {
@@ -35,10 +39,11 @@ class SeleniumHelper:
     @staticmethod
     def click_element(driver, xpath, timeout=2, log_func=None):
         try:
-            element = WebDriverWait(driver, timeout).until(
-                EC.element_to_be_clickable((By.XPATH, xpath))
-            )
-            element.click()
+            with selenium_lock:
+                element = WebDriverWait(driver, timeout).until(
+                    EC.element_to_be_clickable((By.XPATH, xpath))
+                )
+                element.click()
             return True
         except (StaleElementReferenceException, NoSuchElementException, TimeoutException) as e:
             if log_func:
@@ -48,9 +53,10 @@ class SeleniumHelper:
     @staticmethod
     def find_element(driver, xpath, timeout=2, log_func=None):
         try:
-            element = WebDriverWait(driver, timeout).until(
-                EC.presence_of_element_located((By.XPATH, xpath))
-            )
+            with selenium_lock:
+                element = WebDriverWait(driver, timeout).until(
+                    EC.presence_of_element_located((By.XPATH, xpath))
+                )
             return element
         except (StaleElementReferenceException, NoSuchElementException, TimeoutException) as e:
             if log_func:
@@ -60,9 +66,10 @@ class SeleniumHelper:
     @staticmethod
     def find_elements(driver, xpath, timeout=2, log_func=None):
         try:
-            elements = WebDriverWait(driver, timeout).until(
-                EC.presence_of_all_elements_located((By.XPATH, xpath))
-            )
+            with selenium_lock:
+                elements = WebDriverWait(driver, timeout).until(
+                    EC.presence_of_all_elements_located((By.XPATH, xpath))
+                )
             return elements
         except (StaleElementReferenceException, NoSuchElementException, TimeoutException) as e:
             if log_func:
@@ -72,11 +79,12 @@ class SeleniumHelper:
     @staticmethod
     def send_keys_to_element(driver, xpath, keys, timeout=2, log_func=None):
         try:
-            element = WebDriverWait(driver, timeout).until(
-                EC.element_to_be_clickable((By.XPATH, xpath))
-            )
-            element.clear()
-            element.send_keys(keys)
+            with selenium_lock:
+                element = WebDriverWait(driver, timeout).until(
+                    EC.element_to_be_clickable((By.XPATH, xpath))
+                )
+                element.clear()
+                element.send_keys(keys)
             return True
         except (StaleElementReferenceException, NoSuchElementException, TimeoutException) as e:
             if log_func:
