@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import threading
 from datetime import datetime
 
 from PyQt5.QtCore import QEventLoop, QObject
@@ -8,6 +9,9 @@ from PyQt5.QtWidgets import QInputDialog, QMessageBox, QDialog
 
 from transposition_utils import get_transposition_suggestions
 from pdf_selection_dialog import PdfSelectionDialog
+
+# Lock to synchronize file system operations
+fs_lock = threading.Lock()
 
 
 class BatchProcessor(QObject):
@@ -44,7 +48,8 @@ class BatchProcessor(QObject):
 
         title_dir = re.sub(r'[<>:"\\|?* ]', "_", title.replace("/", "-"))
         dest_dir = os.path.join(dest_root, title_dir)
-        os.makedirs(dest_dir, exist_ok=True)
+        with fs_lock:
+            os.makedirs(dest_dir, exist_ok=True)
 
         pdf_paths = []
         labels = []
@@ -104,17 +109,19 @@ class BatchProcessor(QObject):
             song_dir = os.path.join(
                 app.paths["download_dir"], title_dir, artist_dir, key_dir
             )
-            for fname in os.listdir(song_dir):
-                if fname.endswith(".pdf"):
-                    dest_pdf = os.path.join(dest_dir, f"{idx}_{fname}")
-                    print(f"[DEBUG] Moving {fname} to {dest_pdf}")
-                    shutil.move(os.path.join(song_dir, fname), dest_pdf)
-                    pdf_paths.append(dest_pdf)
-                    labels.append(item)
+            with fs_lock:
+                for fname in os.listdir(song_dir):
+                    if fname.endswith(".pdf"):
+                        dest_pdf = os.path.join(dest_dir, f"{idx}_{fname}")
+                        print(f"[DEBUG] Moving {fname} to {dest_pdf}")
+                        shutil.move(os.path.join(song_dir, fname), dest_pdf)
+                        pdf_paths.append(dest_pdf)
+                        labels.append(item)
 
-            shutil.rmtree(
-                os.path.join(app.paths["download_dir"], title_dir), ignore_errors=True
-            )
+            with fs_lock:
+                shutil.rmtree(
+                    os.path.join(app.paths["download_dir"], title_dir), ignore_errors=True
+                )
 
         if pdf_paths:
             dialog = PdfSelectionDialog(pdf_paths, labels, app)
@@ -122,9 +129,10 @@ class BatchProcessor(QObject):
                 chosen = dialog.selected_path()
             else:
                 chosen = None
-            for path in pdf_paths:
-                if path != chosen:
-                    os.remove(path)
+            with fs_lock:
+                for path in pdf_paths:
+                    if path != chosen:
+                        os.remove(path)
             return chosen is not None
 
         return True
@@ -135,7 +143,8 @@ class BatchProcessor(QObject):
             self.app.paths["download_dir"],
             "Batch_" + datetime.now().strftime("%Y%m%d_%H%M%S"),
         )
-        os.makedirs(batch_dir, exist_ok=True)
+        with fs_lock:
+            os.makedirs(batch_dir, exist_ok=True)
         print(f"[DEBUG] Batch directory: {batch_dir}")
 
         for title, instrument, key in entries:

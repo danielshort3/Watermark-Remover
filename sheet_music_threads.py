@@ -6,6 +6,7 @@ import platform
 import subprocess
 import time
 from collections import defaultdict
+import threading
 
 import requests
 import torch
@@ -17,6 +18,9 @@ from reportlab.pdfgen import canvas
 
 from model_functions import UNet, VDSR, PIL_to_tensor, tensor_to_PIL, load_best_model
 from selenium_utils import SeleniumHelper, xpaths
+
+# Global lock to ensure file operations are thread-safe
+file_lock = threading.Lock()
 
 
 class FindSongsThread(QThread):
@@ -328,9 +332,11 @@ class DownloadAndProcessThread(QThread):
         artist_dir = re.sub(r'[<>:"\\|?* ]', '_', self.selected_song_artist.replace("/", "-"))
         main_dir = self.paths['download_dir']
         song_dir = os.path.join(main_dir, title_dir, artist_dir, key_dir)
-        os.makedirs(song_dir, exist_ok=True)
+        with file_lock:
+            os.makedirs(song_dir, exist_ok=True)
         temp_dir = os.path.join(main_dir, title_dir, artist_dir, self.paths['temp_sub_dir'])
-        os.makedirs(temp_dir, exist_ok=True)
+        with file_lock:
+            os.makedirs(temp_dir, exist_ok=True)
         print(f"[DEBUG] Created song directory {song_dir}")
         print(f"[DEBUG] Created temp directory {temp_dir}")
         return song_dir, temp_dir
@@ -443,8 +449,9 @@ class DownloadAndProcessThread(QThread):
                     try:
                         response = requests.get(image_url)
                         if response.status_code == 200:
-                            with open(full_path, 'wb') as f:
-                                f.write(response.content)
+                            with file_lock:
+                                with open(full_path, 'wb') as f:
+                                    f.write(response.content)
                             self.images_by_instrument[instrument].append(full_path)
                         if not self.click_next_button(next_button_xpath):
                             break
@@ -538,20 +545,23 @@ class DownloadAndProcessThread(QThread):
                 base_filename = os.path.splitext(base_filename)[0]
                 pdf_filename = f"{base_filename}.pdf"
                 pdf_path = os.path.join(song_dir, pdf_filename)
-                c = canvas.Canvas(pdf_path, pagesize=(img_width, img_height))
+                with file_lock:
+                    c = canvas.Canvas(pdf_path, pagesize=(img_width, img_height))
                 self.status.emit(f"Creating {pdf_filename}")
                 for idx, image_tensor in enumerate(us_outputs):
                     try:
                         image_pil = tensor_to_PIL(image_tensor.squeeze(0))
                         temp_image_name = f"temp_image_{base_filename}_{idx}.png"
                         temp_image_path = os.path.join(temp_dir, temp_image_name)
-                        image_pil.save(temp_image_path)
-                        c.drawImage(temp_image_path, 0, 0, width=img_width, height=img_height)
-                        c.showPage()
-                        os.remove(temp_image_path)
+                        with file_lock:
+                            image_pil.save(temp_image_path)
+                            c.drawImage(temp_image_path, 0, 0, width=img_width, height=img_height)
+                            c.showPage()
+                            os.remove(temp_image_path)
                     except Exception:
                         continue
-                c.save()
+                with file_lock:
+                    c.save()
                 processed_instruments += 1
                 progress_value = int((processed_instruments / total_instruments) * 100)
                 self.progress.emit(progress_value)
@@ -563,8 +573,10 @@ class DownloadAndProcessThread(QThread):
         try:
             for paths in self.images_by_instrument.values():
                 for path in paths:
-                    os.remove(path)
-            os.rmdir(temp_dir)
+                    with file_lock:
+                        os.remove(path)
+            with file_lock:
+                os.rmdir(temp_dir)
         except Exception as e:
             self.log_updated.emit(f"Exception in cleanup: {str(e)}")
 
@@ -574,10 +586,13 @@ class DownloadAndProcessThread(QThread):
             if not os.environ.get('DISPLAY') and platform.system() == 'Linux':
                 return
             if platform.system() == "Windows":
-                subprocess.run(['explorer', path.replace('/', '\\')], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                with file_lock:
+                    subprocess.run(['explorer', path.replace('/', '\\')], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             elif platform.system() == "Darwin":
-                subprocess.run(['open', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                with file_lock:
+                    subprocess.run(['open', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             elif platform.system() == "Linux":
-                subprocess.run(['xdg-open', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                with file_lock:
+                    subprocess.run(['xdg-open', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
             self.log_updated.emit(f"Exception in open_directory: {str(e)}")
