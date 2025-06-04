@@ -105,18 +105,22 @@ class BatchProcessor(QObject):
             self._run_thread_and_wait(app.download_and_process_images_thread)
 
             key_dir = chosen_key
-            artist_dir = re.sub(r'[<>:"\\|?* ]', "_", "artist")
+            selected_song_text = app.song_choice_box.currentText()
+            parts = selected_song_text.split("\n")
+            selected_song_artist = parts[1] if len(parts) > 1 else "Unknown Artist"
+            artist_dir = re.sub(r'[<>:"\\|?* ]', "_", selected_song_artist.replace("/", "-"))
             song_dir = os.path.join(
                 app.paths["download_dir"], title_dir, artist_dir, key_dir
             )
             with fs_lock:
-                for fname in os.listdir(song_dir):
-                    if fname.endswith(".pdf"):
-                        dest_pdf = os.path.join(dest_dir, f"{idx}_{fname}")
-                        print(f"[DEBUG] Moving {fname} to {dest_pdf}")
-                        shutil.move(os.path.join(song_dir, fname), dest_pdf)
-                        pdf_paths.append(dest_pdf)
-                        labels.append(item)
+                if os.path.isdir(song_dir):
+                    for fname in os.listdir(song_dir):
+                        if fname.endswith(".pdf"):
+                            dest_pdf = os.path.join(dest_dir, f"{idx}_{fname}")
+                            print(f"[DEBUG] Moving {fname} to {dest_pdf}")
+                            shutil.move(os.path.join(song_dir, fname), dest_pdf)
+                            pdf_paths.append(dest_pdf)
+                            labels.append(item)
 
             with fs_lock:
                 shutil.rmtree(
