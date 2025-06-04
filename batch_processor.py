@@ -63,6 +63,11 @@ class BatchProcessor(QObject):
                 app.key_choice_box.itemText(i)
                 for i in range(app.key_choice_box.count())
             ]
+            if not available_keys:
+                print(
+                    f"[DEBUG] No orchestration found for option {idx}. Skipping."
+                )
+                continue
             chosen_key = key
             if key not in available_keys:
                 print(f"[DEBUG] Requested key '{key}' not in available keys {available_keys}")
