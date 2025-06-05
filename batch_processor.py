@@ -34,14 +34,15 @@ class BatchProcessor(QObject):
         print(f"[DEBUG] Processing song '{title}' instrument '{instrument}' key '{key}'")
         app.append_log(f"Processing '{title}' - {instrument} in {key}")
 
-        # Search for the song
+        # Initial search to determine how many options we'll attempt
         print("[DEBUG] Searching for song")
         app.song_search_box.setText(title)
         app.find_songs()
         self._run_thread_and_wait(app.find_songs_thread)
 
         options = [info["text"] for info in app.song_info[:5]]
-        print(f"[DEBUG] Found {len(options)} options")
+        num_options = len(options)
+        print(f"[DEBUG] Found {num_options} options")
         if not options:
             app.append_log(f"No results for {title}")
             return True
@@ -53,7 +54,18 @@ class BatchProcessor(QObject):
 
         pdf_paths = []
         labels = []
-        for idx, item in enumerate(options):
+        for idx in range(num_options):
+            # Re-run the search before processing each option except the first
+            if idx > 0:
+                print("[DEBUG] Re-running search for next option")
+                app.song_search_box.setText(title)
+                app.find_songs()
+                self._run_thread_and_wait(app.find_songs_thread)
+                options = [info["text"] for info in app.song_info[:5]]
+                if idx >= len(options):
+                    print(f"[DEBUG] Option {idx} no longer available")
+                    break
+            item = options[idx]
             print(f"[DEBUG] Option {idx}: {item}")
             app.song_choice_box.setCurrentIndex(idx)
             app.select_song()
