@@ -47,20 +47,6 @@ class BatchProcessor(QObject):
             app.append_log(f"No results for {title}")
             return True
 
-        # Allow the user to choose which result to process
-        item, ok = QInputDialog.getItem(
-            app,
-            "Select Song",
-            f"Select the correct version for '{title}' or Cancel to skip:",
-            options,
-            0,
-            False,
-        )
-        if not ok:
-            app.append_log(f"Skipped '{title}'")
-            return True
-        idx = options.index(item)
-
         title_dir = re.sub(r'[<>:"\\|?* ]', "_", title.replace("/", "-"))
         dest_dir = os.path.join(dest_root, title_dir)
         with fs_lock:
@@ -68,20 +54,32 @@ class BatchProcessor(QObject):
 
         pdf_paths = []
         labels = []
-
-        item = options[idx]
-        print(f"[DEBUG] Selected option {idx}: {item}")
-        app.song_choice_box.setCurrentIndex(idx)
-        app.select_song()
-        self._run_thread_and_wait(app.select_song_thread)
+        for idx in range(num_options):
+            # Re-run the search before processing each option except the first
+            if idx > 0:
+                print("[DEBUG] Re-running search for next option")
+                app.song_search_box.setText(title)
+                app.find_songs()
+                self._run_thread_and_wait(app.find_songs_thread)
+                options = [info["text"] for info in app.song_info[:5]]
+                if idx >= len(options):
+                    print(f"[DEBUG] Option {idx} no longer available")
+                    break
+            item = options[idx]
+            print(f"[DEBUG] Option {idx}: {item}")
+            app.song_choice_box.setCurrentIndex(idx)
+            app.select_song()
+            self._run_thread_and_wait(app.select_song_thread)
 
         available_keys = [
             app.key_choice_box.itemText(i)
             for i in range(app.key_choice_box.count())
         ]
         if not available_keys:
-            print(f"[DEBUG] No orchestration found for option {idx}. Skipping.")
-            return True
+            print(
+                f"[DEBUG] No orchestration found for option {idx}. Skipping."
+            )
+            continue
 
         chosen_key = key
         if key not in available_keys:
@@ -100,7 +98,7 @@ class BatchProcessor(QObject):
                 app, "Select Key", msg, available_keys, 0, False
             )
             if not ok:
-                return True
+                continue
 
         print(f"[DEBUG] Using key '{chosen_key}'")
         app.key_choice_box.setCurrentText(chosen_key)
@@ -118,7 +116,7 @@ class BatchProcessor(QObject):
                 False,
             )
             if not ok:
-                return True
+                continue
         app.selected_instruments = [instrument]
 
         app.download_and_process_images(open_after_download=False)
