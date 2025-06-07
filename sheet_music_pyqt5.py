@@ -566,10 +566,8 @@ class App(QMainWindow):
     def select_key(self):
         selected_key = self.key_choice_box.currentText()
         if not selected_key:
-            # Avoid showing an error when the key box is being cleared
-            if self.key_choice_box.count() > 0:
-                QMessageBox.warning(self, "No Selection", "Please select a key.")
-                self.append_log("No key selected.")
+            QMessageBox.warning(self, "No Selection", "Please select a key.")
+            self.append_log("No key selected.")
             return
 
         self.select_key_thread = SelectKeyThread(self.driver, selected_key, self.button_elements)

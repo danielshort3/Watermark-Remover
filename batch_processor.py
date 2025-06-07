@@ -47,20 +47,6 @@ class BatchProcessor(QObject):
             app.append_log(f"No results for {title}")
             return True
 
-        # Allow the user to choose which result to process
-        item, ok = QInputDialog.getItem(
-            app,
-            "Select Song",
-            f"Select the correct version for '{title}' or Cancel to skip:",
-            options,
-            0,
-            False,
-        )
-        if not ok:
-            app.append_log(f"Skipped '{title}'")
-            return True
-        idx = options.index(item)
-
         title_dir = re.sub(r'[<>:"\\|?* ]', "_", title.replace("/", "-"))
         dest_dir = os.path.join(dest_root, title_dir)
         with fs_lock:
@@ -68,84 +54,95 @@ class BatchProcessor(QObject):
 
         pdf_paths = []
         labels = []
+        for idx in range(num_options):
+            # Re-run the search before processing each option except the first
+            if idx > 0:
+                print("[DEBUG] Re-running search for next option")
+                app.song_search_box.setText(title)
+                app.find_songs()
+                self._run_thread_and_wait(app.find_songs_thread)
+                options = [info["text"] for info in app.song_info[:5]]
+                if idx >= len(options):
+                    print(f"[DEBUG] Option {idx} no longer available")
+                    break
+            item = options[idx]
+            print(f"[DEBUG] Option {idx}: {item}")
+            app.song_choice_box.setCurrentIndex(idx)
+            app.select_song()
+            self._run_thread_and_wait(app.select_song_thread)
 
-        item = options[idx]
-        print(f"[DEBUG] Selected option {idx}: {item}")
-        app.song_choice_box.setCurrentIndex(idx)
-        app.select_song()
-        self._run_thread_and_wait(app.select_song_thread)
+            available_keys = [
+                app.key_choice_box.itemText(i)
+                for i in range(app.key_choice_box.count())
+            ]
+            if not available_keys:
+                print(
+                    f"[DEBUG] No orchestration found for option {idx}. Skipping."
+                )
+                continue
+            chosen_key = key
+            if key not in available_keys:
+                print(f"[DEBUG] Requested key '{key}' not in available keys {available_keys}")
+                msg = f"Requested key '{key}' not found. Choose from available keys:\n{', '.join(available_keys)}"
+                suggestions = get_transposition_suggestions(
+                    available_keys, instrument, key
+                )
+                if suggestions["direct"] or suggestions["closest"]:
+                    msg += "\n\nSuggestions:\n"
+                    for s in suggestions["direct"]:
+                        msg += f"- {s['instrument']} in {s['key']} (direct)\n"
+                    for s in suggestions["closest"][:3]:
+                        msg += f"- {s['instrument']} in {s['key']} ({s['interval']} {s['interval_direction']})\n"
+                chosen_key, ok = QInputDialog.getItem(
+                    app, "Select Key", msg, available_keys, 0, False
+                )
+                if not ok:
+                    continue
 
-        available_keys = [
-            app.key_choice_box.itemText(i)
-            for i in range(app.key_choice_box.count())
-        ]
-        if not available_keys:
-            print(f"[DEBUG] No orchestration found for option {idx}. Skipping.")
-            return True
+            print(f"[DEBUG] Using key '{chosen_key}'")
+            app.key_choice_box.setCurrentText(chosen_key)
+            app.select_key()
+            self._run_thread_and_wait(app.select_key_thread)
 
-        chosen_key = key
-        if key not in available_keys:
-            print(f"[DEBUG] Requested key '{key}' not in available keys {available_keys}")
-            msg = f"Requested key '{key}' not found. Choose from available keys:\n{', '.join(available_keys)}"
-            suggestions = get_transposition_suggestions(
-                available_keys, instrument, key
+            if instrument not in app.instrument_parts:
+                print(f"[DEBUG] Instrument '{instrument}' not found in parts {app.instrument_parts}")
+                instrument, ok = QInputDialog.getItem(
+                    app,
+                    "Select Instrument",
+                    f"Instrument '{instrument}' not found. Choose one:",
+                    app.instrument_parts,
+                    0,
+                    False,
+                )
+                if not ok:
+                    continue
+            app.selected_instruments = [instrument]
+
+            app.download_and_process_images(open_after_download=False)
+            self._run_thread_and_wait(app.download_and_process_images_thread)
+
+            key_dir = chosen_key
+            selected_song_text = app.song_choice_box.currentText()
+            parts = selected_song_text.split("\n")
+            selected_song_artist = parts[1] if len(parts) > 1 else "Unknown Artist"
+            artist_dir = re.sub(r'[<>:"\\|?* ]', "_", selected_song_artist.replace("/", "-"))
+            song_dir = os.path.join(
+                app.paths["download_dir"], title_dir, artist_dir, key_dir
             )
-            if suggestions["direct"] or suggestions["closest"]:
-                msg += "\n\nSuggestions:\n"
-                for s in suggestions["direct"]:
-                    msg += f"- {s['instrument']} in {s['key']} (direct)\n"
-                for s in suggestions["closest"][:3]:
-                    msg += f"- {s['instrument']} in {s['key']} ({s['interval']} {s['interval_direction']})\n"
-            chosen_key, ok = QInputDialog.getItem(
-                app, "Select Key", msg, available_keys, 0, False
-            )
-            if not ok:
-                return True
+            with fs_lock:
+                if os.path.isdir(song_dir):
+                    for fname in os.listdir(song_dir):
+                        if fname.endswith(".pdf"):
+                            dest_pdf = os.path.join(dest_dir, f"{idx}_{fname}")
+                            print(f"[DEBUG] Moving {fname} to {dest_pdf}")
+                            shutil.move(os.path.join(song_dir, fname), dest_pdf)
+                            pdf_paths.append(dest_pdf)
+                            labels.append(item)
 
-        print(f"[DEBUG] Using key '{chosen_key}'")
-        app.key_choice_box.setCurrentText(chosen_key)
-        app.select_key()
-        self._run_thread_and_wait(app.select_key_thread)
-
-        if instrument not in app.instrument_parts:
-            print(f"[DEBUG] Instrument '{instrument}' not found in parts {app.instrument_parts}")
-            instrument, ok = QInputDialog.getItem(
-                app,
-                "Select Instrument",
-                f"Instrument '{instrument}' not found. Choose one:",
-                app.instrument_parts,
-                0,
-                False,
-            )
-            if not ok:
-                return True
-        app.selected_instruments = [instrument]
-
-        app.download_and_process_images(open_after_download=False)
-        self._run_thread_and_wait(app.download_and_process_images_thread)
-
-        key_dir = chosen_key
-        selected_song_text = app.song_choice_box.currentText()
-        parts = selected_song_text.split("\n")
-        selected_song_artist = parts[1] if len(parts) > 1 else "Unknown Artist"
-        artist_dir = re.sub(r'[<>:"\\|?* ]', "_", selected_song_artist.replace("/", "-"))
-        song_dir = os.path.join(
-            app.paths["download_dir"], title_dir, artist_dir, key_dir
-        )
-        with fs_lock:
-            if os.path.isdir(song_dir):
-                for fname in os.listdir(song_dir):
-                    if fname.endswith(".pdf"):
-                        dest_pdf = os.path.join(dest_dir, f"{idx}_{fname}")
-                        print(f"[DEBUG] Moving {fname} to {dest_pdf}")
-                        shutil.move(os.path.join(song_dir, fname), dest_pdf)
-                        pdf_paths.append(dest_pdf)
-                        labels.append(item)
-
-        with fs_lock:
-            shutil.rmtree(
-                os.path.join(app.paths["download_dir"], title_dir), ignore_errors=True
-            )
+            with fs_lock:
+                shutil.rmtree(
+                    os.path.join(app.paths["download_dir"], title_dir), ignore_errors=True
+                )
 
         if pdf_paths:
             dialog = PdfSelectionDialog(pdf_paths, labels, app)
