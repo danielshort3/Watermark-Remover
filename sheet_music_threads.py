@@ -107,11 +107,19 @@ class FindSongsThread(QThread):
             except NoSuchElementException:
                 image_url = ''
 
+            is_song = False
             if text3:
+                lower = text3.lower()
+                if 'collection' not in lower and 'book' not in lower:
+                    is_song = True
+
+            if is_song:
                 self.song_info_updated.emit(element_text, image_url)
                 self.song_choice_box_updated.emit(element_text, image_url)
                 songs_counter += 1
                 self.request_song_choice_box_count.emit()
+                if songs_counter >= 5:
+                    break
             else:
                 self.song_info_updated.emit(title, image_url)
 
