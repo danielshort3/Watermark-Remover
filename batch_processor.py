@@ -7,6 +7,8 @@ from datetime import datetime
 from PyQt5.QtCore import QEventLoop, QObject
 from PyQt5.QtWidgets import QInputDialog, QMessageBox, QDialog
 
+from suggestion_dialog import SuggestionDialog
+
 from transposition_utils import get_transposition_suggestions
 from pdf_selection_dialog import PdfSelectionDialog
 
@@ -40,7 +42,7 @@ class BatchProcessor(QObject):
         app.find_songs()
         self._run_thread_and_wait(app.find_songs_thread)
 
-        options = [info["text"] for info in app.song_info[:5]]
+        options = [app.song_choice_box.itemText(i) for i in range(min(5, app.song_choice_box.count()))]
         num_options = len(options)
         print(f"[DEBUG] Found {num_options} options")
         if not options:
@@ -61,7 +63,7 @@ class BatchProcessor(QObject):
                 app.song_search_box.setText(title)
                 app.find_songs()
                 self._run_thread_and_wait(app.find_songs_thread)
-                options = [info["text"] for info in app.song_info[:5]]
+                options = [app.song_choice_box.itemText(i) for i in range(min(5, app.song_choice_box.count()))]
                 if idx >= len(options):
                     print(f"[DEBUG] Option {idx} no longer available")
                     break
@@ -81,42 +83,38 @@ class BatchProcessor(QObject):
                 )
                 continue
             chosen_key = key
+            chosen_instrument = instrument
             if key not in available_keys:
                 print(f"[DEBUG] Requested key '{key}' not in available keys {available_keys}")
-                msg = f"Requested key '{key}' not found. Choose from available keys:\n{', '.join(available_keys)}"
                 suggestions = get_transposition_suggestions(
                     available_keys, instrument, key
                 )
-                if suggestions["direct"] or suggestions["closest"]:
-                    msg += "\n\nSuggestions:\n"
-                    for s in suggestions["direct"]:
-                        msg += f"- {s['instrument']} in {s['key']} (direct)\n"
-                    for s in suggestions["closest"][:3]:
-                        msg += f"- {s['instrument']} in {s['key']} ({s['interval']} {s['interval_direction']})\n"
-                chosen_key, ok = QInputDialog.getItem(
-                    app, "Select Key", msg, available_keys, 0, False
-                )
-                if not ok:
+                dialog = SuggestionDialog(instrument, available_keys, suggestions, app)
+                if dialog.exec_() != QDialog.Accepted:
                     continue
-
-            print(f"[DEBUG] Using key '{chosen_key}'")
+                result = dialog.selected()
+                if result is None:
+                    continue
+                chosen_instrument, chosen_key = result
             app.key_choice_box.setCurrentText(chosen_key)
             app.select_key()
             self._run_thread_and_wait(app.select_key_thread)
+            print(f"[DEBUG] Using key '{chosen_key}' and instrument '{chosen_instrument}'")
 
-            if instrument not in app.instrument_parts:
-                print(f"[DEBUG] Instrument '{instrument}' not found in parts {app.instrument_parts}")
-                instrument, ok = QInputDialog.getItem(
+            if chosen_instrument not in app.instrument_parts:
+                print(f"[DEBUG] Instrument '{chosen_instrument}' not found in parts {app.instrument_parts}")
+                instr, ok = QInputDialog.getItem(
                     app,
                     "Select Instrument",
-                    f"Instrument '{instrument}' not found. Choose one:",
+                    f"Instrument '{chosen_instrument}' not found. Choose one:",
                     app.instrument_parts,
                     0,
                     False,
                 )
                 if not ok:
                     continue
-            app.selected_instruments = [instrument]
+                chosen_instrument = instr
+            app.selected_instruments = [chosen_instrument]
 
             app.download_and_process_images(open_after_download=False)
             self._run_thread_and_wait(app.download_and_process_images_thread)
