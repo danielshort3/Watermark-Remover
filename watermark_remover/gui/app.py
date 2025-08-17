@@ -13,7 +13,7 @@ import platform
 
 # Third-party library imports
 from PyQt5.QtGui import QIcon, QTextCursor, QFont, QPixmap
-from PyQt5.QtCore import Qt, pyqtSlot, QThread, pyqtSignal, QByteArray, QSize
+from PyQt5.QtCore import Qt, pyqtSlot, QThread, pyqtSignal, QByteArray, QSize, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -34,6 +34,8 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QMessageBox,
     QInputDialog,
+    QFileDialog,
+    QScrollArea,
 )
 from watermark_remover.utils.transposition_utils import (
     normalize_key as util_normalize_key,
@@ -173,6 +175,14 @@ class App(QMainWindow):
         # GUI elements
         self.create_widgets()
         self.create_layout()
+        # Start a timer to periodically update the Selenium live view.  A lower
+        # interval results in smoother updates at the cost of increased CPU
+        # usage.  If selenium is not initialised yet the update function
+        # handles the exception gracefully.
+        self.live_timer = QTimer(self)
+        self.live_timer.timeout.connect(self.update_live_view)
+        # Update every 2 seconds; adjust as necessary for responsiveness
+        self.live_timer.start(2000)
         self.show()
 
     def create_widgets(self):
@@ -264,6 +274,47 @@ class App(QMainWindow):
         self.progressBar = QProgressBar(self)
         self.progressBar.setValue(0)
 
+        # --- Custom visual additions ---
+        # Live view of the Selenium controlled browser.  A QLabel that will be
+        # updated periodically via a timer with screenshots from the driver.
+        self.live_view_label = QLabel(self)
+        self.live_view_label.setFixedSize(400, 300)
+        self.live_view_label.setAlignment(Qt.AlignCenter)
+        # Add a subtle border so the view is clearly delineated
+        self.live_view_label.setStyleSheet("border: 1px solid #555;")
+        self.live_view_label.setText("Live View Not Available")
+
+        # Image preview labels for each processing stage.  Each label is
+        # initialised with a border and placeholder text.  As images are
+        # downloaded and processed, these labels will be updated by slots
+        # connected to the worker thread's preview signals.
+        self.download_preview_label = QLabel(self)
+        self.download_preview_label.setFixedSize(300, 400)
+        self.download_preview_label.setAlignment(Qt.AlignCenter)
+        self.download_preview_label.setStyleSheet("border: 1px solid #555;")
+        self.download_preview_label.setText("Download Preview")
+
+        self.watermark_preview_label = QLabel(self)
+        self.watermark_preview_label.setFixedSize(300, 400)
+        self.watermark_preview_label.setAlignment(Qt.AlignCenter)
+        self.watermark_preview_label.setStyleSheet("border: 1px solid #555;")
+        self.watermark_preview_label.setText("Watermark Removed Preview")
+
+        self.upscale_preview_label = QLabel(self)
+        self.upscale_preview_label.setFixedSize(300, 400)
+        self.upscale_preview_label.setAlignment(Qt.AlignCenter)
+        self.upscale_preview_label.setStyleSheet("border: 1px solid #555;")
+        self.upscale_preview_label.setText("Upscaled Preview")
+
+        # Buttons to open pop‑up windows for a larger live view and image previews
+        self.open_live_view_button = QPushButton("Open Live View", self)
+        self.open_live_view_button.setToolTip("Open a resizable pop‑up to view the live Selenium browser")
+        self.open_live_view_button.clicked.connect(self.open_live_view_popup)
+
+        self.open_preview_button = QPushButton("Open Image Previews", self)
+        self.open_preview_button.setToolTip("Open a resizable pop‑up to examine downloaded and processed images")
+        self.open_preview_button.clicked.connect(self.open_image_preview_popup)
+
 
 
     def create_layout(self):
@@ -345,6 +396,29 @@ class App(QMainWindow):
         main_layout.addWidget(self.log_area)
         main_layout.addWidget(self.progress_label)
         main_layout.addWidget(self.progressBar)
+
+        # Group boxes for live view and previews
+        live_group = QGroupBox("Selenium Live View")
+        live_layout = QVBoxLayout()
+        live_layout.addWidget(self.live_view_label)
+        live_group.setLayout(live_layout)
+
+        preview_group = QGroupBox("Image Previews")
+        preview_layout = QHBoxLayout()
+        preview_layout.addWidget(self.download_preview_label)
+        preview_layout.addWidget(self.watermark_preview_label)
+        preview_layout.addWidget(self.upscale_preview_label)
+        preview_group.setLayout(preview_layout)
+
+        main_layout.addWidget(live_group)
+        main_layout.addWidget(preview_group)
+
+        # Add pop‑up buttons beneath the preview sections so users can
+        # conveniently open larger, zoomable views when needed.
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.open_live_view_button)
+        button_layout.addWidget(self.open_preview_button)
+        main_layout.addLayout(button_layout)
 
         # Central widget
         central_widget = QWidget()
@@ -470,6 +544,217 @@ class App(QMainWindow):
 
     def updateStatusLabel(self, message):
         self.progress_label.setText(message)
+
+    def update_live_view(self):
+        """
+        Capture a screenshot from the Selenium driver and display it in the
+        live view label.  If the driver is not available or an error
+        occurs, the function simply returns.  The screenshot is scaled
+        proportionally to fit within the live view area while preserving
+        the aspect ratio.
+        """
+        try:
+            # Take a PNG screenshot from the Selenium controlled browser
+            png_data = self.driver.get_screenshot_as_png()
+            pixmap = QPixmap()
+            pixmap.loadFromData(QByteArray(png_data))
+            # Scale the pixmap to the size of the live view label
+            scaled = pixmap.scaled(
+                self.live_view_label.width(),
+                self.live_view_label.height(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            self.live_view_label.setPixmap(scaled)
+        except Exception:
+            # If the driver hasn't loaded a page yet or another exception occurs,
+            # we do not update the view.  A more robust implementation could
+            # display an error message or placeholder image here.
+            pass
+
+    @pyqtSlot(str)
+    def show_download_preview(self, path: str) -> None:
+        """
+        Display the downloaded image specified by `path` in the download
+        preview label.  The image is scaled to fit while maintaining its
+        aspect ratio.
+        """
+        try:
+            pixmap = QPixmap(path)
+            if pixmap.isNull():
+                return
+            scaled = pixmap.scaled(
+                self.download_preview_label.width(),
+                self.download_preview_label.height(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            self.download_preview_label.setPixmap(scaled)
+        except Exception:
+            pass
+
+    @pyqtSlot(str)
+    def show_watermark_preview(self, path: str) -> None:
+        """
+        Display the watermark‑removed image specified by `path` in the
+        watermark preview label.
+        """
+        try:
+            pixmap = QPixmap(path)
+            if pixmap.isNull():
+                return
+            scaled = pixmap.scaled(
+                self.watermark_preview_label.width(),
+                self.watermark_preview_label.height(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            self.watermark_preview_label.setPixmap(scaled)
+            # Once the pixmap is loaded into the label the underlying file can be
+            # safely deleted; the GUI keeps its own copy in memory.  This avoids
+            # leftover preview files on disk while still preserving the preview
+            # visually in the application.  We only remove files that are
+            # previews (contain "_preview" in the filename) to avoid deleting
+            # downloaded source images.
+            try:
+                base_name = os.path.basename(path)
+                if "_preview" in base_name and os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    @pyqtSlot(str)
+    def show_upscale_preview(self, path: str) -> None:
+        """
+        Display the upscaled image specified by `path` in the upscaled
+        preview label.
+        """
+        try:
+            pixmap = QPixmap(path)
+            if pixmap.isNull():
+                return
+            scaled = pixmap.scaled(
+                self.upscale_preview_label.width(),
+                self.upscale_preview_label.height(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            self.upscale_preview_label.setPixmap(scaled)
+            # Remove the preview file after loading to free disk space.
+            try:
+                base_name = os.path.basename(path)
+                if "_preview" in base_name and os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def open_live_view_popup(self) -> None:
+        """
+        Open a pop‑up window containing a larger, resizable view of the
+        Selenium browser.  The pop‑up periodically refreshes the image and
+        provides a button to save the current screenshot to disk.
+        """
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Selenium Live View")
+        layout = QVBoxLayout(dialog)
+
+        # Label to display the live view.  Using a separate label ensures
+        # resizing of the pop‑up does not affect the main window's live view.
+        view_label = QLabel(dialog)
+        view_label.setAlignment(Qt.AlignCenter)
+        view_label.setStyleSheet("border: 1px solid #555;")
+        view_label.setMinimumSize(400, 300)
+        layout.addWidget(view_label, 1)
+
+        # Button to save a screenshot of the current live view
+        save_button = QPushButton("Save Screenshot", dialog)
+        layout.addWidget(save_button, 0)
+
+        # Timer to refresh the view every two seconds
+        timer = QTimer(dialog)
+        def update_view():
+            try:
+                png_data = self.driver.get_screenshot_as_png()
+                pixmap = QPixmap()
+                pixmap.loadFromData(QByteArray(png_data))
+                # Store the unscaled pixmap so we can save it later
+                dialog.current_pixmap = pixmap
+                scaled = pixmap.scaled(
+                    view_label.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+                view_label.setPixmap(scaled)
+            except Exception:
+                pass
+        # Connect timer
+        timer.timeout.connect(update_view)
+        timer.start(2000)
+        # Initial update
+        update_view()
+
+        def save_screenshot():
+            if hasattr(dialog, 'current_pixmap'):
+                file_path, _ = QFileDialog.getSaveFileName(
+                    dialog,
+                    "Save Screenshot",
+                    "screenshot.png",
+                    "PNG Files (*.png);;All Files (*)",
+                )
+                if file_path:
+                    dialog.current_pixmap.save(file_path)
+        save_button.clicked.connect(save_screenshot)
+
+        dialog.resize(800, 600)
+        dialog.exec_()
+
+    def open_image_preview_popup(self) -> None:
+        """
+        Open a pop‑up window containing larger versions of the download,
+        watermark removed and upscaled previews.  The images will scale
+        automatically when the window is resized, allowing the user to zoom
+        in by expanding the window.
+        """
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Image Previews")
+        layout = QVBoxLayout(dialog)
+
+        scroll = QScrollArea(dialog)
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        # List of tuples: (title, source label)
+        previews = [
+            ("Downloaded", self.download_preview_label),
+            ("Watermark Removed", self.watermark_preview_label),
+            ("Upscaled", self.upscale_preview_label),
+        ]
+        for title, src_label in previews:
+            title_label = QLabel(title, container)
+            title_label.setAlignment(Qt.AlignCenter)
+            title_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+            container_layout.addWidget(title_label)
+
+            img_label = QLabel(container)
+            img_label.setAlignment(Qt.AlignCenter)
+            img_label.setStyleSheet("border: 1px solid #555;")
+            img_label.setScaledContents(True)
+            pixmap = src_label.pixmap()
+            if pixmap:
+                img_label.setPixmap(pixmap)
+            # Give the label a minimum height so it's visible when empty
+            img_label.setMinimumSize(400, 300)
+            container_layout.addWidget(img_label)
+
+        scroll.setWidget(container)
+        scroll.setWidgetResizable(True)
+        layout.addWidget(scroll)
+
+        dialog.resize(900, 800)
+        dialog.exec_()
 
     def closeEvent(self, event):
         self.driver.quit()
@@ -750,6 +1035,15 @@ class App(QMainWindow):
         self.download_and_process_images_thread.log_updated.connect(self.update_log)
         self.download_and_process_images_thread.progress.connect(self.updateProgressBar)
         self.download_and_process_images_thread.status.connect(self.updateStatusLabel)
+        # Connect preview signals to update the preview labels
+        try:
+            self.download_and_process_images_thread.download_preview.connect(self.show_download_preview)
+            self.download_and_process_images_thread.watermark_preview.connect(self.show_watermark_preview)
+            self.download_and_process_images_thread.upscale_preview.connect(self.show_upscale_preview)
+        except Exception:
+            # If the worker thread does not expose these signals (for example
+            # during unit tests), silently ignore.
+            pass
         self.download_and_process_images_thread.started.connect(self.disable_all_sections)
         self.download_and_process_images_thread.finished.connect(self.enable_all_sections)
         self.download_and_process_images_thread.finished.connect(self.download_completed)

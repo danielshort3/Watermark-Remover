@@ -337,9 +337,28 @@ class SelectKeyThread(QThread):
 
 
 class DownloadAndProcessThread(QThread):
+    """
+    Thread responsible for downloading images for the selected parts, running
+    watermark removal and upscaling, and assembling PDFs.  In addition to
+    reporting progress and status back to the GUI, this class now emits
+    preview signals whenever an image is downloaded, after the watermark has
+    been removed, and after it has been upscaled.  These previews can be
+    connected to slots in the GUI to display intermediate results to the
+    user.
+    """
+
+    # Progress of the overall operation (0–100)
     progress = pyqtSignal(int)
+    # Status message describing the current operation
     status = pyqtSignal(str)
+    # Log messages for the log area
     log_updated = pyqtSignal(str)
+    # Paths of downloaded images emitted as soon as they are saved
+    download_preview = pyqtSignal(str)
+    # Paths of images after watermark removal emitted when available
+    watermark_preview = pyqtSignal(str)
+    # Paths of images after upscaling emitted when available
+    upscale_preview = pyqtSignal(str)
 
     def __init__(self, driver, key_choice_text, selected_song_title, selected_song_artist,
                  paths, selected_instruments, download_horn_only=False, open_after_download=True):
@@ -357,10 +376,17 @@ class DownloadAndProcessThread(QThread):
         self.open_after_download = open_after_download
         print(f"[DEBUG] DownloadAndProcessThread initialized for '{self.selected_song_title}'")
 
+        # Placeholder for temporary directory used during this run.  This is
+        # populated in run() after initialize_directories() has been called.
+        self.temp_dir = None
+
     def run(self):
         try:
             print("[DEBUG] Starting download and processing thread")
             song_dir, temp_dir = self.initialize_directories()
+            # Store the temp_dir on the instance so that other methods (e.g.
+            # remove_watermarks and upscale_images) can save preview images
+            self.temp_dir = temp_dir
             print(f"[DEBUG] Directories initialized: {song_dir}, {temp_dir}")
             self.find_parts()
             print("[DEBUG] Parts found")
@@ -520,6 +546,14 @@ class DownloadAndProcessThread(QThread):
                                 with open(full_path, 'wb') as f:
                                     f.write(response.content)
                             self.images_by_instrument[instrument].append(full_path)
+                            # Emit a preview signal so the GUI can display the
+                            # downloaded image immediately.  The full_path
+                            # points to the file saved on disk.
+                            try:
+                                self.download_preview.emit(full_path)
+                            except Exception:
+                                # In case no slot is connected or emission fails we silently ignore
+                                pass
                         if not self.click_next_button(next_button_xpath):
                             break
                     except Exception:
@@ -550,7 +584,30 @@ class DownloadAndProcessThread(QThread):
                         try:
                             image_tensor = PIL_to_tensor(path).unsqueeze(0).to(self.device)
                             wm_output = wm_model(image_tensor)
+                            # Store the raw tensor output in memory
                             self.wm_outputs[instrument].append(wm_output.cpu())
+
+                            # Save a preview of the watermark‑removed image.  Convert the
+                            # tensor to a PIL image and write it into the temporary
+                            # directory.  Use the original filename as the base for the
+                            # preview so that previews can be matched to their source.
+                            if self.temp_dir:
+                                try:
+                                    from .inference.model_functions import tensor_to_PIL  # type: ignore
+                                except Exception:
+                                    # Fallback import if relative import fails (e.g. when running module directly)
+                                    from watermark_remover.inference.model_functions import tensor_to_PIL
+                                pil_img = tensor_to_PIL(wm_output.squeeze(0))
+                                base_name = os.path.basename(path)
+                                preview_name = os.path.splitext(base_name)[0] + "_wm_preview.png"
+                                preview_path = os.path.join(self.temp_dir, preview_name)
+                                with file_lock:
+                                    pil_img.save(preview_path)
+                                try:
+                                    self.watermark_preview.emit(preview_path)
+                                except Exception:
+                                    pass
+
                             processed_images += 1
                             progress_value = int((processed_images / total_images) * 100)
                             self.progress.emit(progress_value)
@@ -573,28 +630,48 @@ class DownloadAndProcessThread(QThread):
             self.status.emit("Upscaling images")
             self.progress.emit(0)
             with torch.inference_mode():
-                for instrument, wm_outputs in self.wm_outputs.items():
-                    for wm_output in wm_outputs:
-                        try:
-                            wm_output_upscaled = upsample(wm_output)
-                            padding_size = 16
-                            patch_height = 550
-                            patch_width = 850
-                            padding = (padding_size, padding_size, padding_size, padding_size)
-                            wm_output_upscaled_padded = nn.functional.pad(wm_output_upscaled, padding, value=1.0)
-                            us_output = torch.zeros_like(wm_output_upscaled).cpu()
-                            for i in range(0, wm_output_upscaled.shape[-2], patch_height):
-                                for j in range(0, wm_output_upscaled.shape[-1], patch_width):
-                                    patch = wm_output_upscaled_padded[:, :, i:i + patch_height + padding_size * 2, j:j + patch_width + padding_size * 2].cpu()
-                                    us_patch = us_model(patch.to(self.device))
-                                    us_patch = us_patch[:, :, padding_size:-padding_size, padding_size:-padding_size]
-                                    us_output[:, :, i:i + patch_height, j:j + patch_width] = us_patch.cpu()
-                            self.us_outputs[instrument].append(us_output)
-                            processed_images += 1
-                            progress_value = int((processed_images / total_images) * 100)
-                            self.progress.emit(progress_value)
-                        except Exception:
-                            continue
+                 for instrument, wm_outputs in self.wm_outputs.items():
+                     for idx, wm_output in enumerate(wm_outputs):
+                         try:
+                             wm_output_upscaled = upsample(wm_output)
+                             padding_size = 16
+                             patch_height = 550
+                             patch_width = 850
+                             padding = (padding_size, padding_size, padding_size, padding_size)
+                             wm_output_upscaled_padded = nn.functional.pad(wm_output_upscaled, padding, value=1.0)
+                             us_output = torch.zeros_like(wm_output_upscaled).cpu()
+                             for i in range(0, wm_output_upscaled.shape[-2], patch_height):
+                                 for j in range(0, wm_output_upscaled.shape[-1], patch_width):
+                                     patch = wm_output_upscaled_padded[:, :, i:i + patch_height + padding_size * 2, j:j + patch_width + padding_size * 2].cpu()
+                                     us_patch = us_model(patch.to(self.device))
+                                     us_patch = us_patch[:, :, padding_size:-padding_size, padding_size:-padding_size]
+                                     us_output[:, :, i:i + patch_height, j:j + patch_width] = us_patch.cpu()
+                             self.us_outputs[instrument].append(us_output)
+
+                             # Save a preview of the upscaled image.  Use tensor_to_PIL
+                             # to convert and write to the temporary directory.
+                             if self.temp_dir:
+                                 try:
+                                     from .inference.model_functions import tensor_to_PIL  # type: ignore
+                                 except Exception:
+                                     from watermark_remover.inference.model_functions import tensor_to_PIL
+                                 pil_img = tensor_to_PIL(us_output.squeeze(0))
+                                 # create a unique filename using instrument name and index
+                                 safe_instrument = re.sub(r"[^a-zA-Z0-9]", "_", instrument)
+                                 preview_name = f"{safe_instrument}_us_preview_{idx:03d}.png"
+                                 preview_path = os.path.join(self.temp_dir, preview_name)
+                                 with file_lock:
+                                     pil_img.save(preview_path)
+                                 try:
+                                     self.upscale_preview.emit(preview_path)
+                                 except Exception:
+                                     pass
+
+                             processed_images += 1
+                             progress_value = int((processed_images / total_images) * 100)
+                             self.progress.emit(progress_value)
+                         except Exception:
+                             continue
         except Exception as e:
             self.log_updated.emit(f"Exception in upscale_images: {str(e)}")
 
