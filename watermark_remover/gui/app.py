@@ -250,6 +250,10 @@ class App(QMainWindow):
         self.batch_process_button.clicked.connect(self.batch_process_songs)
 
         # Log and Progress Bar
+        self.debug_checkbox = QCheckBox("Enable Debug Logging", self)
+        self.debug_checkbox.setToolTip("Show debug messages in the log")
+        self.debug_checkbox.setChecked(False)
+
         self.log_area = QTextEdit(self)
         self.log_area.setReadOnly(True)
         self.log_area.setToolTip("Log area displaying process updates")
@@ -332,7 +336,12 @@ class App(QMainWindow):
         main_layout.addWidget(download_group)
         main_layout.addWidget(self.download_and_process_button)
         main_layout.addWidget(self.batch_process_button)
-        main_layout.addWidget(QLabel("Log:"))
+
+        log_header_layout = QHBoxLayout()
+        log_header_layout.addWidget(QLabel("Log:"))
+        log_header_layout.addWidget(self.debug_checkbox)
+        log_header_layout.addStretch()
+        main_layout.addLayout(log_header_layout)
         main_layout.addWidget(self.log_area)
         main_layout.addWidget(self.progress_label)
         main_layout.addWidget(self.progressBar)
@@ -447,6 +456,8 @@ class App(QMainWindow):
 
 
     def append_log(self, message):
+        if message.startswith("[DEBUG]") and not self.debug_checkbox.isChecked():
+            return
         timestamp = datetime.now().strftime('%H:%M:%S')
         formatted_message = f"{timestamp}: {message}"
         self.log_area.append(formatted_message)
