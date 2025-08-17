@@ -7,10 +7,13 @@ from datetime import datetime
 from PyQt5.QtCore import QEventLoop, QObject
 from PyQt5.QtWidgets import QInputDialog, QMessageBox, QDialog
 
-from suggestion_dialog import SuggestionDialog
-
-from transposition_utils import get_transposition_suggestions
-from pdf_selection_dialog import PdfSelectionDialog
+from watermark_remover.gui.dialogs.suggestion_dialog import SuggestionDialog
+from watermark_remover.utils.transposition_utils import (
+    get_transposition_suggestions,
+)
+from watermark_remover.gui.dialogs.pdf_selection_dialog import (
+    PdfSelectionDialog,
+)
 
 # Lock to synchronize file system operations
 fs_lock = threading.Lock()

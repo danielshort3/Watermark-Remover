@@ -35,7 +35,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QInputDialog,
 )
-from transposition_utils import (
+from watermark_remover.utils.transposition_utils import (
     normalize_key as util_normalize_key,
     get_interval_name as util_get_interval_name,
     get_transposition_suggestions as util_get_transposition_suggestions,
@@ -48,15 +48,15 @@ from webdriver_manager.chrome import ChromeDriverManager
 import requests
 
 # Imports moved to dedicated modules
-from selenium_utils import SeleniumHelper, xpaths
-from sheet_music_threads import (
+from watermark_remover.download.selenium_utils import SeleniumHelper, xpaths
+from watermark_remover.threads.sheet_music_threads import (
     FindSongsThread,
     SelectSongThread,
     SelectKeyThread,
     DownloadAndProcessThread,
 )
-from batch_processor import BatchProcessor
-from batch_grid_dialog import BatchGridDialog
+from watermark_remover.download.batch_processor import BatchProcessor
+from watermark_remover.gui.dialogs.batch_grid_dialog import BatchGridDialog
 
 # Main application window
 class App(QMainWindow):
