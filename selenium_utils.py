@@ -4,7 +4,6 @@ from selenium.common.exceptions import (
     NoSuchElementException,
     StaleElementReferenceException,
     TimeoutException,
-    ElementClickInterceptedException,
 )
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -41,29 +40,11 @@ class SeleniumHelper:
     def click_element(driver, xpath, timeout=2, log_func=None):
         try:
             with selenium_lock:
-                if log_func:
-                    log_func(f"[DEBUG] Waiting for element to be clickable: {xpath}")
                 element = WebDriverWait(driver, timeout).until(
                     EC.element_to_be_clickable((By.XPATH, xpath))
                 )
-                if log_func:
-                    log_func(f"[DEBUG] Attempting click on element: {xpath}")
                 element.click()
-                if log_func:
-                    log_func(f"[DEBUG] Click successful on element: {xpath}")
             return True
-        except ElementClickInterceptedException as e:
-            if log_func:
-                log_func(
-                    f"[DEBUG] Element click intercepted at xpath: {xpath} - {str(e)}"
-                )
-                try:
-                    log_func(
-                        f"[DEBUG] Element location: {element.location}, size: {element.size}"
-                    )
-                except Exception:
-                    pass
-            return False
         except (StaleElementReferenceException, NoSuchElementException, TimeoutException) as e:
             if log_func:
                 log_func(f"Error clicking element at xpath: {xpath} - {str(e)}")
@@ -73,13 +54,9 @@ class SeleniumHelper:
     def find_element(driver, xpath, timeout=2, log_func=None):
         try:
             with selenium_lock:
-                if log_func:
-                    log_func(f"[DEBUG] Searching for element: {xpath}")
                 element = WebDriverWait(driver, timeout).until(
                     EC.presence_of_element_located((By.XPATH, xpath))
                 )
-                if log_func:
-                    log_func(f"[DEBUG] Element found: {xpath}")
             return element
         except (StaleElementReferenceException, NoSuchElementException, TimeoutException) as e:
             if log_func:
@@ -90,15 +67,9 @@ class SeleniumHelper:
     def find_elements(driver, xpath, timeout=2, log_func=None):
         try:
             with selenium_lock:
-                if log_func:
-                    log_func(f"[DEBUG] Searching for elements: {xpath}")
                 elements = WebDriverWait(driver, timeout).until(
                     EC.presence_of_all_elements_located((By.XPATH, xpath))
                 )
-                if log_func:
-                    log_func(
-                        f"[DEBUG] Found {len(elements)} elements for xpath: {xpath}"
-                    )
             return elements
         except (StaleElementReferenceException, NoSuchElementException, TimeoutException) as e:
             if log_func:
