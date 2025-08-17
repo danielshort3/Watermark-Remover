@@ -146,12 +146,33 @@ class SelectSongThread(QThread):
                 raise Exception("Error clicking the song.")
 
             chords_click_xpath = xpaths['chords_button']
-            if not SeleniumHelper.click_element(self.driver, chords_click_xpath, log_func=self.log_updated.emit):
+            if not SeleniumHelper.click_element(
+                self.driver, chords_click_xpath, log_func=self.log_updated.emit
+            ):
                 self.log_updated.emit("Error clicking 'Chords & Lyrics' button.")
                 raise Exception("Error clicking 'Chords & Lyrics' button.")
 
             orch_click_xpath = xpaths['orchestration_header']
-            if not SeleniumHelper.click_element(self.driver, orch_click_xpath, log_func=self.log_updated.emit):
+            self.log_updated.emit(
+                f"[DEBUG] Attempting to open orchestration menu using xpath: {orch_click_xpath}"
+            )
+            if not SeleniumHelper.click_element(
+                self.driver, orch_click_xpath, log_func=self.log_updated.emit
+            ):
+                self.log_updated.emit(
+                    "[DEBUG] click_element reported failure for orchestration header"
+                )
+                orch_element = SeleniumHelper.find_element(
+                    self.driver, orch_click_xpath, log_func=self.log_updated.emit
+                )
+                if orch_element:
+                    self.log_updated.emit(
+                        f"[DEBUG] Orchestration header found but not clickable. Location: {orch_element.location}, size: {orch_element.size}"
+                    )
+                else:
+                    self.log_updated.emit(
+                        "[DEBUG] Orchestration header element not present on page."
+                    )
                 self.log_updated.emit("Orchestration not found for this song.")
                 self.song_selection_failed.emit()
                 return
