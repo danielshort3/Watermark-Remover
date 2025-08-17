@@ -258,6 +258,14 @@ class SelectSongThread(QThread):
             if 'cover' not in part_text.lower() and 'lead sheet' not in part_text.lower():
                 instrument_parts.append(part_text)
 
+        if instrument_parts:
+            formatted_parts = ', '.join(instrument_parts)
+            self.log_updated.emit(
+                f"[DEBUG] Found instrument parts: {formatted_parts}"
+            )
+        else:
+            self.log_updated.emit("[DEBUG] No valid instrument parts found")
+
         if not SeleniumHelper.click_element(self.driver, parts_button_xpath, log_func=self.log_updated.emit):
             self.log_updated.emit("Error closing parts menu.")
             return
@@ -312,6 +320,14 @@ class SelectKeyThread(QThread):
             part_text = part.text.lower()
             if 'cover' not in part_text and 'lead sheet' not in part_text:
                 instrument_parts.append(part.text)
+
+        if instrument_parts:
+            formatted_parts = ', '.join(instrument_parts)
+            self.log_updated.emit(
+                f"[DEBUG] Found instrument parts: {formatted_parts}"
+            )
+        else:
+            self.log_updated.emit("[DEBUG] No valid instrument parts found")
 
         if not SeleniumHelper.click_element(self.driver, parts_button_xpath, log_func=self.log_updated.emit):
             self.log_updated.emit("Error closing parts menu.")
@@ -406,6 +422,14 @@ class DownloadAndProcessThread(QThread):
             if 'cover' not in part_text and 'lead sheet' not in part_text:
                 self.instrument_parts.append(part.text)
 
+        if self.instrument_parts:
+            formatted_parts = ', '.join(self.instrument_parts)
+            self.log_updated.emit(
+                f"[DEBUG] Available instrument parts: {formatted_parts}"
+            )
+        else:
+            self.log_updated.emit("[DEBUG] No valid instrument parts found")
+
         if not SeleniumHelper.click_element(self.driver, parts_button_xpath, log_func=self.log_updated.emit):
             self.log_updated.emit("Error closing parts menu.")
             return
@@ -437,6 +461,7 @@ class DownloadAndProcessThread(QThread):
                 instruments_to_process = self.instrument_parts
 
             for instrument in instruments_to_process:
+                self.log_updated.emit(f"[DEBUG] Processing instrument: {instrument}")
                 if not SeleniumHelper.click_element(self.driver, parts_button_xpath, log_func=self.log_updated.emit):
                     self.log_updated.emit('Error clicking "Parts" button')
                     continue

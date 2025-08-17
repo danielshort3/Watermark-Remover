@@ -110,6 +110,18 @@ class SeleniumHelper:
                 except Exception as ex:
                     if log_func:
                         log_func(f"[DEBUG] Failed to save screenshot: {str(ex)}")
+            # Attempt a JavaScript click as a fallback
+            try:
+                with selenium_lock:
+                    driver.execute_script("arguments[0].click();", element)
+                log_func and log_func(
+                    f"[DEBUG] JavaScript click successful on element: {xpath}"
+                )
+                return True
+            except Exception as js_ex:
+                log_func and log_func(
+                    f"[DEBUG] JavaScript click failed on element: {xpath} - {str(js_ex)}"
+                )
             return False
         except (StaleElementReferenceException, NoSuchElementException, TimeoutException) as e:
             if log_func:

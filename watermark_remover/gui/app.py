@@ -77,6 +77,8 @@ class App(QMainWindow):
         options = webdriver.ChromeOptions()
         options.add_argument("--start-maximized")
         options.add_argument("--headless")  # Uncomment if you want to run Chrome in headless mode
+        # Explicitly set a large window size so headless Chrome loads full menus
+        options.add_argument("--window-size=1920,1080")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-dev-shm-usage")
