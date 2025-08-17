@@ -114,42 +114,47 @@ class App(QMainWindow):
         self.setMaximumHeight(1200)
 
         # Styling and Font
-        self.setFont(QFont("Arial", 9))
+        # Use a cleaner, lighter colour palette for the application.  Moving away
+        # from the dark greys makes the interface feel less cluttered and more
+        # approachable.  A neutral background with dark text improves legibility.
+        self.setFont(QFont("Segoe UI", 10))
         self.setStyleSheet(
             """
             QWidget {
-                background-color: #2b2b2b;
-                color: #f0f0f0;
+                background-color: #f5f6fa;
+                color: #333333;
+                font-family: 'Segoe UI';
             }
             QLineEdit, QComboBox, QTextEdit, QProgressBar {
-                background-color: #3c3f41;
-                color: #f0f0f0;
-                border: 1px solid #555;
+                background-color: #ffffff;
+                color: #333333;
+                border: 1px solid #cccccc;
                 border-radius: 4px;
+                padding: 4px;
                 font-size: 10pt;
-                selection-background-color: #5a5a5a;
+                selection-background-color: #d0d7de;
             }
             QPushButton {
-                background-color: #3498db;
+                background-color: #0078d4;
                 color: white;
                 border-radius: 4px;
-                padding: 5px 20px;
-                min-height: 20px;
+                padding: 6px 16px;
                 font-size: 10pt;
             }
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #005ea6;
             }
             QPushButton:disabled {
-                background-color: #555555;
+                background-color: #e0e0e0;
+                color: #9e9e9e;
             }
             QLabel {
-                color: #ffffff;
+                color: #333333;
                 font-weight: bold;
                 font-size: 10pt;
             }
             QGroupBox {
-                border: 1px solid #555;
+                border: 1px solid #cccccc;
                 border-radius: 4px;
                 margin-top: 10px;
                 padding: 10px;
@@ -157,16 +162,16 @@ class App(QMainWindow):
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                subcontrol-position: top center;
+                subcontrol-position: top left;
                 padding: 0 3px;
-                background-color: #2b2b2b;
+                background-color: #f5f6fa;
             }
             QProgressBar {
                 text-align: center;
                 font-size: 10pt;
             }
             QProgressBar::chunk {
-                background-color: #3498db;
+                background-color: #0078d4;
             }
             """
         )
@@ -397,25 +402,13 @@ class App(QMainWindow):
         main_layout.addWidget(self.progress_label)
         main_layout.addWidget(self.progressBar)
 
-        # Group boxes for live view and previews
-        live_group = QGroupBox("Selenium Live View")
-        live_layout = QVBoxLayout()
-        live_layout.addWidget(self.live_view_label)
-        live_group.setLayout(live_layout)
+        # The embedded Selenium live view and static image previews have been removed
+        # from the main interface.  Users can still access these features via
+        # dedicated pop‑ups using the buttons below, which declutters the main window.
 
-        preview_group = QGroupBox("Image Previews")
-        preview_layout = QHBoxLayout()
-        preview_layout.addWidget(self.download_preview_label)
-        preview_layout.addWidget(self.watermark_preview_label)
-        preview_layout.addWidget(self.upscale_preview_label)
-        preview_group.setLayout(preview_layout)
-
-        main_layout.addWidget(live_group)
-        main_layout.addWidget(preview_group)
-
-        # Add pop‑up buttons beneath the preview sections so users can
-        # conveniently open larger, zoomable views when needed.
+        # Add pop‑up buttons so users can open larger, zoomable views when needed.
         button_layout = QHBoxLayout()
+        # Only display the buttons; the live view and previews themselves are in pop‑ups.
         button_layout.addWidget(self.open_live_view_button)
         button_layout.addWidget(self.open_preview_button)
         main_layout.addLayout(button_layout)
@@ -660,6 +653,11 @@ class App(QMainWindow):
         """
         dialog = QDialog(self)
         dialog.setWindowTitle("Selenium Live View")
+        # Make the dialog non‑modal so the user can continue interacting
+        # with the main window while the pop‑up is open.
+        dialog.setWindowModality(Qt.NonModal)
+        # Delete the dialog when closed to free resources.
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
         layout = QVBoxLayout(dialog)
 
         # Label to display the live view.  Using a separate label ensures
@@ -710,7 +708,11 @@ class App(QMainWindow):
         save_button.clicked.connect(save_screenshot)
 
         dialog.resize(800, 600)
-        dialog.exec_()
+        # Persist a reference on the instance to prevent premature garbage collection.
+        self.live_view_dialog = dialog
+        # Explicitly mark the dialog as non‑modal to ensure the parent window remains interactive.
+        dialog.setModal(False)
+        dialog.show()
 
     def open_image_preview_popup(self) -> None:
         """
@@ -721,40 +723,68 @@ class App(QMainWindow):
         """
         dialog = QDialog(self)
         dialog.setWindowTitle("Image Previews")
-        layout = QVBoxLayout(dialog)
+        # Non‑modal dialog so the main window remains interactive
+        dialog.setWindowModality(Qt.NonModal)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
 
+        # Use a scroll area in case the preview collection is wider than the window
         scroll = QScrollArea(dialog)
         container = QWidget()
-        container_layout = QVBoxLayout(container)
-        # List of tuples: (title, source label)
+        # Arrange the preview panels horizontally so they sit side‑by‑side
+        container_layout = QHBoxLayout(container)
+        # Define the previews to show: label and source label
         previews = [
             ("Downloaded", self.download_preview_label),
             ("Watermark Removed", self.watermark_preview_label),
             ("Upscaled", self.upscale_preview_label),
         ]
+        # Import QSizePolicy here to assign size policies to widgets.  Importing inside
+        # the function avoids polluting the module namespace and works because PyQt
+        # does the same lazy loading internally.
+        from PyQt5.QtWidgets import QSizePolicy
         for title, src_label in previews:
+            # Each preview gets its own vertical layout containing the title and image
+            vbox = QVBoxLayout()
             title_label = QLabel(title, container)
             title_label.setAlignment(Qt.AlignCenter)
-            title_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
-            container_layout.addWidget(title_label)
+            title_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
+            # Prevent the header from stretching vertically; it should only expand horizontally
+            title_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            vbox.addWidget(title_label)
 
             img_label = QLabel(container)
             img_label.setAlignment(Qt.AlignCenter)
-            img_label.setStyleSheet("border: 1px solid #555;")
-            img_label.setScaledContents(True)
-            pixmap = src_label.pixmap()
-            if pixmap:
-                img_label.setPixmap(pixmap)
-            # Give the label a minimum height so it's visible when empty
-            img_label.setMinimumSize(400, 300)
-            container_layout.addWidget(img_label)
+            # Portrait orientation: height greater than width
+            img_label.setMinimumSize(300, 400)
+            # Allow the image to expand to fill available space while preserving aspect ratio
+            img_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            # Draw a light border around the image area
+            img_label.setStyleSheet("border: 1px solid #cccccc;")
+            # Copy the pixmap from the small preview into the larger label
+            orig_pix = src_label.pixmap()
+            if orig_pix:
+                # Define a helper to update the pixmap with correct aspect ratio
+                def update_image(label=img_label, pixmap=orig_pix):
+                    if pixmap:
+                        scaled = pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        label.setPixmap(scaled)
+                # Assign a resize event handler so the image scales with the widget
+                img_label.resizeEvent = lambda event, lbl=img_label, px=orig_pix: lbl.setPixmap(px.scaled(lbl.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                # Set initial pixmap
+                update_image()
+            vbox.addWidget(img_label)
+            # Allow each preview vbox to expand equally within the horizontal container
+            container_layout.addLayout(vbox, 1)
 
         scroll.setWidget(container)
         scroll.setWidgetResizable(True)
-        layout.addWidget(scroll)
-
-        dialog.resize(900, 800)
-        dialog.exec_()
+        # Top‑level layout for the dialog
+        dialog_layout = QVBoxLayout(dialog)
+        dialog_layout.addWidget(scroll)
+        dialog.resize(900, 600)
+        # Persist a reference so Python does not garbage collect the dialog
+        self.preview_dialog = dialog
+        dialog.show()
 
     def closeEvent(self, event):
         self.driver.quit()
