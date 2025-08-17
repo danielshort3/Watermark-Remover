@@ -16,8 +16,14 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 from reportlab.pdfgen import canvas
 
-from model_functions import UNet, VDSR, PIL_to_tensor, tensor_to_PIL, load_best_model
-from selenium_utils import SeleniumHelper, xpaths
+from watermark_remover.inference.model_functions import (
+    UNet,
+    VDSR,
+    PIL_to_tensor,
+    tensor_to_PIL,
+    load_best_model,
+)
+from watermark_remover.download.selenium_utils import SeleniumHelper, xpaths
 
 # Global lock to ensure file operations are thread-safe
 file_lock = threading.Lock()

@@ -4,7 +4,9 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from transposition_utils import get_transposition_suggestions
+from watermark_remover.utils.transposition_utils import (
+    get_transposition_suggestions,
+)
 
 
 def test_direct_transposition():

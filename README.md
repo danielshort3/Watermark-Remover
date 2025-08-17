@@ -9,6 +9,7 @@ This repository contains a project aimed at removing watermarks from low-resolut
 - [GUI Implementation](#gui-implementation)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Project Structure](#project-structure)
 
 ## Introduction
 
@@ -25,6 +26,18 @@ These models are provided as state dictionaries and can be found in the `models/
 ## GUI Implementation
 
 A GUI built with PyQt5 is used to scrape sheet music from a specified website, run it through both the UNet and VDSR models, and compile the processed images into a PDF. This implementation is found in the notebook `sheet_music_pyqt5.ipynb`.
+
+## Project Structure
+
+The repository's code has been organized into a Python package located in `watermark_remover/`:
+
+- `gui/` – application window and PyQt dialogs
+- `download/` – Selenium helpers and batch processing logic
+- `threads/` – background worker threads
+- `inference/` – model definitions and loading utilities
+- `utils/` – shared utility functions such as transposition helpers
+
+Model-training notebooks remain at the repository root and are unchanged.
 
 ## Installation
 
